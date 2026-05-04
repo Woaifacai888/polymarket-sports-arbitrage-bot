@@ -218,22 +218,24 @@ class AnsibleValidator(RenderedFilesValidator):
             return result
 
         env = os.environ.copy()
-        env["ANSIBLE_LOCAL_TEMP"] = tempfile.mkdtemp(prefix="ansible-local-")
         env["ANSIBLE_REMOTE_TEMP"] = "/tmp/.ansible-${USER}/tmp"
 
-        for playbook in playbooks:
-            process = self.run_command(
-                ["ansible-playbook", "--syntax-check", str(playbook.relative_to(workdir))],
-                workdir,
-                env=env,
-            )
-            failure = self.failure_from_process(process, str(playbook.relative_to(workdir)))
-            if failure is not None:
-                if self._is_dependency_resolution_failure(failure.message):
-                    result.skipped = True
-                    result.warnings.append(failure.message)
-                    continue
-                result.failures.append(failure)
+        with tempfile.TemporaryDirectory(prefix="ansible-local-") as ansible_local_temp:
+            env["ANSIBLE_LOCAL_TEMP"] = ansible_local_temp
+
+            for playbook in playbooks:
+                process = self.run_command(
+                    ["ansible-playbook", "--syntax-check", str(playbook.relative_to(workdir))],
+                    workdir,
+                    env=env,
+                )
+                failure = self.failure_from_process(process, str(playbook.relative_to(workdir)))
+                if failure is not None:
+                    if self._is_dependency_resolution_failure(failure.message):
+                        result.skipped = True
+                        result.warnings.append(failure.message)
+                        continue
+                    result.failures.append(failure)
         return result
 
     @staticmethod

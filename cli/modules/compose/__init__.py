@@ -1,5 +1,7 @@
 """Docker Compose module."""
 
+from __future__ import annotations
+
 import logging
 from typing import Annotated
 
@@ -68,7 +70,7 @@ class ComposeModule(Module):
             bool,
             Option(
                 "--docker-test-all",
-                help="Alias for --matrix --kind Docker Compose validation. Requires --docker.",
+                help="Alias for --matrix --kind Docker Compose validation",
             ),
         ] = False,
     ) -> None:

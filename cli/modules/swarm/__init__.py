@@ -1,5 +1,7 @@
 """Docker Swarm module with compose-compatible validation."""
 
+from __future__ import annotations
+
 import logging
 from typing import Annotated
 
@@ -68,7 +70,7 @@ class SwarmModule(Module):
             bool,
             Option(
                 "--docker-test-all",
-                help="Alias for --matrix --kind Docker Compose validation. Requires --docker.",
+                help="Alias for --matrix --kind Docker Compose validation",
             ),
         ] = False,
     ) -> None:
