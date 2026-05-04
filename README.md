@@ -4,7 +4,7 @@ Create reusable templates and turn them into configurable workloads for homelabs
 
 ## How it works
 
-Create reusable templates for infrastructure expertise like Docker, Kubernetes, Terraform, Ansible, Python, and more. Use the built-in *Jinja2-like* templating syntax with `<< >>` variables, `<% %>` blocks, and `<# #>` comments to keep configuration modular and conditional. Sync with Git in both directions or manage everything locally. Render templates, configure variables through a guided wizard, and wire up secrets. Copy them to remote servers and environments or any local directory.
+Create reusable templates for infrastructure expertise like Docker, Kubernetes, Terraform, Ansible, static files, Python, and more. Use the built-in *Jinja2-like* templating syntax with `<< >>` variables, `<% %>` blocks, and `<# #>` comments to keep configuration modular and conditional. Sync with Git in both directions or manage everything locally. Render templates, configure variables through a guided wizard, and wire up secrets. Copy them to remote servers and environments or any local directory.
 
 ✨ Explore 100+ template presets for homelabs and self-hosted infrastructure: https://github.com/ChristianLempa/boilerplates-library
 
@@ -67,8 +67,11 @@ boilerplates --help
 # Update Repository Library
 boilerplates repo update
 
-# List all available templates for a docker compose
+# List all available templates for a Docker Compose stack
 boilerplates compose list
+
+# List technology-agnostic static file templates
+boilerplates static list
 
 # Show details about a specific template
 boilerplates compose show nginx

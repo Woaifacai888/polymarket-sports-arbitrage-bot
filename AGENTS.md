@@ -115,6 +115,7 @@ The project is stored in a public GitHub Repository, use issues, and branches fo
 - `helm`
 - `kubernetes`
 - `packer`
+- `static`
 - `swarm`
 - `terraform`
 
