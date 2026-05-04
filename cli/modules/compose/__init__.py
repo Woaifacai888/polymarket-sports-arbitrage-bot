@@ -24,7 +24,7 @@ class ComposeModule(Module):
         self,
         template_id: Annotated[
             str | None,
-            Argument(help="Template ID to validate"),
+            Argument(help="Template ID to validate (omit to validate all templates)"),
         ] = None,
         *,
         path: Annotated[
@@ -33,14 +33,21 @@ class ComposeModule(Module):
         ] = None,
         all_templates: Annotated[
             bool,
-            Option("--all", help="Validate all Compose templates"),
+            Option("--all", help="Validate all Compose templates (default when no template ID is provided)"),
         ] = False,
         verbose: Annotated[bool, Option("--verbose", "-v", help="Show detailed validation information")] = False,
         semantic: Annotated[
             bool,
             Option(
-                "--semantic",
-                help="Enable dependency-matrix semantic validation",
+                "--semantic/--no-semantic",
+                help="Enable semantic validation for rendered files",
+            ),
+        ] = True,
+        matrix: Annotated[
+            bool,
+            Option(
+                "--matrix",
+                help="Validate all reachable dependency states for a single template",
             ),
         ] = False,
         kind: Annotated[
@@ -50,9 +57,25 @@ class ComposeModule(Module):
                 help="Enable dependency-matrix Docker Compose validation",
             ),
         ] = False,
+        docker: Annotated[
+            bool,
+            Option(
+                "--docker/--no-docker",
+                help="Alias for --kind Docker Compose validation",
+            ),
+        ] = False,
+        docker_test_all: Annotated[
+            bool,
+            Option(
+                "--docker-test-all",
+                help="Alias for --matrix --kind Docker Compose validation. Requires --docker.",
+            ),
+        ] = False,
     ) -> None:
         """Validate Compose templates."""
-        kind_validator = self.kind_validator_class(verbose).validate_rendered_files if kind else None
+        kind_enabled = kind or docker or docker_test_all
+        matrix_enabled = matrix or docker_test_all
+        kind_validator = self.kind_validator_class(verbose).validate_rendered_files if kind_enabled else None
         validate_templates(
             self,
             template_id,
@@ -60,7 +83,8 @@ class ComposeModule(Module):
             ValidationConfig(
                 verbose=verbose,
                 semantic=semantic,
-                kind=kind,
+                matrix=matrix_enabled,
+                kind=kind_enabled,
                 all_templates=all_templates,
                 kind_validator=kind_validator,
             ),

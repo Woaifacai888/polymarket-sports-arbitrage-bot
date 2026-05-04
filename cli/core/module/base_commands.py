@@ -18,6 +18,7 @@ from ..exceptions import (
 from ..input import InputManager
 from ..template import Template
 from ..validation import DependencyMatrixBuilder, MatrixOptions, ValidationRunner
+from ..validators import get_validator_registry
 from .generation_destination import (
     GenerationDestination,
     format_remote_destination,
@@ -61,7 +62,8 @@ class ValidationConfig:
     """Configuration for template validation."""
 
     verbose: bool
-    semantic: bool = False
+    semantic: bool = True
+    matrix: bool = False
     kind: bool = False
     all_templates: bool = False
     matrix_max_combinations: int = 100
@@ -598,10 +600,6 @@ def validate_templates(
         module_instance.display.error("--all cannot be combined with a template ID or --path")
         raise Exit(code=1) from None
 
-    if not config.all_templates and not template_id and not path:
-        module_instance.display.error("Provide a template ID, --path, or --all")
-        raise Exit(code=1) from None
-
     template = _load_template_for_validation(module_instance, template_id, path)
 
     if template:
@@ -654,13 +652,17 @@ def _validate_single_template(
         if not config.quiet_success:
             module_instance.display.success("Jinja2 validation passed")
 
-        if config.semantic or config.kind:
+        if config.matrix or config.kind:
             _run_matrix_validation(module_instance, template, config)
             return
 
+        # Semantic validation for the default rendered output.
+        if config.semantic:
+            _run_semantic_validation(module_instance, template, config.verbose)
+
         # Verbose output
         if config.verbose:
-            _display_validation_details(module_instance, template)
+            _display_validation_details(module_instance, template, config.semantic)
 
     except TemplateRenderError as e:
         module_instance.display.error(str(e), context=f"template '{template_id}'")
@@ -784,10 +786,41 @@ def _matrix_stage_status(
     return "pass"
 
 
-def _display_validation_details(module_instance, template) -> None:
+def _run_semantic_validation(module_instance, template, verbose: bool) -> None:
+    """Run semantic validation on the default rendered template files."""
+    module_instance.display.info("")
+    module_instance.display.info("Running semantic validation...")
+
+    registry = get_validator_registry()
+    debug_mode = logger.isEnabledFor(logging.DEBUG)
+    rendered_files, _ = template.render(template.variables, debug=debug_mode)
+
+    has_semantic_errors = False
+    for file_path, content in rendered_files.items():
+        result = registry.validate_file(content, file_path)
+
+        if result.errors or result.warnings or (verbose and result.info):
+            module_instance.display.info(f"\nFile: {file_path}")
+            result.display(f"{file_path}")
+
+            if result.errors:
+                has_semantic_errors = True
+
+    if has_semantic_errors:
+        module_instance.display.error("Semantic validation found errors")
+        raise Exit(code=1) from None
+
+    module_instance.display.success("Semantic validation passed")
+
+
+def _display_validation_details(module_instance, template, semantic: bool) -> None:
     """Display verbose validation details."""
     module_instance.display.info(f"\nTemplate path: {template.template_dir}")
     module_instance.display.info(f"Found {len(template.used_variables)} variables")
+    if semantic:
+        debug_mode = logger.isEnabledFor(logging.DEBUG)
+        rendered_files, _ = template.render(template.variables, debug=debug_mode)
+        module_instance.display.info(f"Generated {len(rendered_files)} files")
 
 
 def _validate_all_templates(module_instance, config: ValidationConfig) -> None:
@@ -800,7 +833,14 @@ def _validate_all_templates(module_instance, config: ValidationConfig) -> None:
 
     all_templates = module_instance._load_all_templates()
     total = len(all_templates)
-    child_config = replace(config, quiet_success=not config.verbose)
+    # Preserve historical all-template validation behavior: by default this
+    # checks template syntax/variables only. Matrix or kind validation can be
+    # explicitly enabled for all templates with --matrix/--kind.
+    child_config = replace(
+        config,
+        semantic=config.semantic if config.matrix or config.kind else False,
+        quiet_success=not config.verbose,
+    )
 
     for template in all_templates:
         try:

@@ -255,7 +255,7 @@ class Module(ABC):
         self,
         template_id: Annotated[
             str | None,
-            Argument(help="Template ID to validate"),
+            Argument(help="Template ID to validate (omit to validate all templates)"),
         ] = None,
         *,
         path: Annotated[
@@ -264,14 +264,21 @@ class Module(ABC):
         ] = None,
         all_templates: Annotated[
             bool,
-            Option("--all", help="Validate all templates in this module"),
+            Option("--all", help="Validate all templates in this module (default when no template ID is provided)"),
         ] = False,
         verbose: Annotated[bool, Option("--verbose", "-v", help="Show detailed validation information")] = False,
         semantic: Annotated[
             bool,
             Option(
-                "--semantic",
-                help="Enable dependency-matrix semantic validation",
+                "--semantic/--no-semantic",
+                help="Enable semantic validation for rendered files",
+            ),
+        ] = True,
+        matrix: Annotated[
+            bool,
+            Option(
+                "--matrix",
+                help="Validate all reachable dependency states for a single template",
             ),
         ] = False,
         kind: Annotated[
@@ -282,17 +289,17 @@ class Module(ABC):
             ),
         ] = False,
     ) -> None:
-        """Validate templates for syntax, rendered semantics, and optional kind-specific checks.
+        """Validate templates for syntax, rendered semantics, and optional dependency matrix checks.
 
         Examples:
             # Validate specific template
             cli terraform validate cloudflare-dns-record
 
             # Validate all templates
-            cli terraform validate --all
+            cli terraform validate
 
             # Validate rendered semantic and kind-specific matrix cases
-            cli terraform validate cloudflare-dns-record --semantic --kind
+            cli terraform validate cloudflare-dns-record --matrix --kind
         """
         return validate_templates(
             self,
@@ -301,6 +308,7 @@ class Module(ABC):
             ValidationConfig(
                 verbose=verbose,
                 semantic=semantic,
+                matrix=matrix,
                 kind=kind,
                 all_templates=all_templates,
                 kind_validator=self.kind_validator_class(verbose).validate_rendered_files

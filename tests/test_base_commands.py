@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from cli.core.module.base_commands import GenerationConfig, apply_output_name, generate_template, list_templates
+from cli.core.module.base_commands import (
+    GenerationConfig,
+    ValidationConfig,
+    _validate_all_templates,
+    apply_output_name,
+    generate_template,
+    list_templates,
+    validate_templates,
+)
 
 
 def _noop(*_args, **_kwargs) -> None:
@@ -51,6 +59,16 @@ class _DisplayCapture:
     def info(self, *args, **kwargs) -> None:
         del args, kwargs
         raise AssertionError("info should not be used when templates exist")
+
+
+class _ValidationDisplayCapture(_DisplayCapture):
+    def data_table(self, *args, **kwargs) -> None:
+        del args, kwargs
+        self.lines.append("data_table")
+
+    def info(self, value: str = "", *args, **kwargs) -> None:
+        del args, kwargs
+        self.lines.append(value)
 
 
 def test_list_templates_raw_outputs_tab_separated_rows() -> None:
@@ -161,3 +179,59 @@ def test_generate_template_dry_run_skips_destination_prompt_and_overwrite_check(
 
     assert any("boilerplate rendered successfully" in line for line in display.lines)
     assert any("preview only" in line for line in display.lines)
+
+
+def test_validate_templates_without_id_validates_all_templates(monkeypatch) -> None:
+    """Omitting the template ID should keep the legacy validate-all behavior."""
+    display = _ValidationDisplayCapture()
+    module_instance = SimpleNamespace(name="compose", display=display)
+    called = {}
+
+    def capture_validate_all(received_module, received_config):
+        called["module"] = received_module
+        called["config"] = received_config
+
+    monkeypatch.setattr("cli.core.module.base_commands._validate_all_templates", capture_validate_all)
+
+    validate_templates(module_instance, None, None, ValidationConfig(verbose=False))
+
+    assert called["module"] is module_instance
+    assert called["config"].semantic is True
+
+
+def test_validate_single_template_runs_default_semantic_validation(monkeypatch) -> None:
+    """Single-template validation should still run semantic validation by default."""
+    display = _ValidationDisplayCapture()
+    template = SimpleNamespace(id="whoami", used_variables=[], variables=SimpleNamespace())
+    module_instance = SimpleNamespace(name="compose", display=display)
+    called = {}
+
+    monkeypatch.setattr("cli.core.module.base_commands._load_template_for_validation", lambda *_args: template)
+
+    def capture_semantic(received_module, received_template, verbose):
+        called["module"] = received_module
+        called["template"] = received_template
+        called["verbose"] = verbose
+
+    monkeypatch.setattr("cli.core.module.base_commands._run_semantic_validation", capture_semantic)
+
+    validate_templates(module_instance, "whoami", None, ValidationConfig(verbose=False))
+
+    assert called == {"module": module_instance, "template": template, "verbose": False}
+
+
+def test_validate_all_templates_keeps_basic_validation_by_default(monkeypatch) -> None:
+    """Validate-all should not start rendering every template semantically unless matrix/kind is requested."""
+    display = _ValidationDisplayCapture()
+    template = SimpleNamespace(id="whoami", used_variables=[], variables=SimpleNamespace())
+    module_instance = SimpleNamespace(
+        name="compose",
+        display=display,
+        _load_all_templates=lambda: [template],
+    )
+
+    monkeypatch.setattr("cli.core.module.base_commands._run_semantic_validation", _raise_output_check)
+
+    _validate_all_templates(module_instance, ValidationConfig(verbose=False))
+
+    assert any("All templates are valid" in line for line in display.lines)
