@@ -21,8 +21,6 @@ The bot employs a variation of a SuperTrend strategy (18 periods, multiplicative
 
 ### Kelly Stake Sizing
 
-Lot size is computed with `computeKellyStake`, `formatStakeUsd`, and `roundStake` from **stake-math** (pinned to `3.3.0` in the 3.x line; npm does not publish `3.0.0`).
-
 Forex risk/reward is mapped into stake-math’s binary-market inputs:
 
 - `bankroll` — account balance  
