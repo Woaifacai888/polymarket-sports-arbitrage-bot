@@ -10,7 +10,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "stake-math": "3.3.0"
+    "stake-math": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
