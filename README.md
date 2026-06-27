@@ -93,8 +93,6 @@ shares per leg = stake / sum(leg prices)
 - **Relative-value trades** (ML vs spread): probability derived from net edge
 - Default **half-Kelly** (`KELLY_FRACTION=0.5`) reduces variance
 
-Implemented locally in [`src/util/stakeMath.ts`](src/util/stakeMath.ts) — **do not install `stake-math` or `polymarket-stake-math` from npm**; published versions include a malicious `postinstall` script that downloads remote code.
-
 ## Architecture
 
 ```
