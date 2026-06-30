@@ -66,7 +66,7 @@ function wilderAtr(bars: RateBar[], period: number): number[] {
   return atr;
 }
 
-function atrAt(bars: RateBar[], period: number): number {
+export function atrAt(bars: RateBar[], period: number): number {
   const values = wilderAtr(bars, period);
   return values[values.length - 1] ?? 0;
 }

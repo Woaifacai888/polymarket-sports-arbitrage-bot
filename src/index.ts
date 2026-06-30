@@ -3,9 +3,15 @@ import { stdin as input, stdout as output } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { createInitialSymbols, type SymbolConfig } from './config/symbols.js';
-import { indicator } from './dataProcessing.js';
+import { indicator, atrAt } from './dataProcessing.js';
 import { mt5 } from './mt5/bridgeClient.js';
 import { executeBuyOrder, executeSellOrder } from './orderProcessing.js';
+import { logEvent } from './logging.js';
+import {
+  CONFIRMATION_CANDLES,
+  MIN_ATR,
+  MIN_BODY_TO_RANGE,
+} from './config/risk.js';
 import {
   candleRetrievedFlag,
   getMt5Interval,
@@ -53,6 +59,7 @@ async function connectToMt5(): Promise<void> {
 }
 
 async function runTradingLoop(symbols: SymbolConfig[]): Promise<void> {
+  const pendingSignals = new Map<string, { type: 'buy' | 'sell'; entry: number; minVal?: number; maxVal?: number; avgVal: number; candlesWaited: number; createdAt: number }>();
   while (true) {
     const terminal = await mt5.terminalInfo();
     if (!terminal?.connected) {
@@ -101,10 +108,64 @@ async function runTradingLoop(symbols: SymbolConfig[]): Promise<void> {
       const buyCondition = prvLow <= minimum && currOpen < average;
       const sellCondition = prvHigh >= maximum && currOpen > average;
 
-      if (buyCondition) {
-        await executeBuyOrder(mt5, symbolConfig.symbol, currOpen, minimum, average);
-      } else if (sellCondition) {
-        await executeSellOrder(mt5, symbolConfig.symbol, currOpen, maximum, average);
+      // Trend-quality filter: require minimum ATR and momentum (body-to-range)
+      const atr = atrAt(rates, 18);
+      const prevBar = rates[rates.length - 2];
+      const body = Math.abs(prevBar.open - prevBar.close);
+      const range = prevBar.high - prevBar.low || 1;
+      const bodyRatio = body / range;
+
+      const passesTrendFilter = atr >= MIN_ATR && bodyRatio >= MIN_BODY_TO_RANGE;
+
+      const pending = pendingSignals.get(symbolConfig.symbol);
+
+      if (pending) {
+        // Awaiting confirmation candle(s)
+        pending.candlesWaited += 1;
+        if ((pending.type === 'buy' && buyCondition) || (pending.type === 'sell' && sellCondition)) {
+          if (pending.candlesWaited >= CONFIRMATION_CANDLES) {
+            logEvent('signal_confirmed', { symbol: symbolConfig.symbol, pending });
+            if (pending.type === 'buy') {
+              await executeBuyOrder(mt5, symbolConfig.symbol, pending.entry, pending.minVal ?? 0, pending.avgVal);
+            } else {
+              await executeSellOrder(mt5, symbolConfig.symbol, pending.entry, pending.maxVal ?? 0, pending.avgVal);
+            }
+            pendingSignals.delete(symbolConfig.symbol);
+          }
+        } else {
+          logEvent('signal_cancelled', { symbol: symbolConfig.symbol, pending });
+          pendingSignals.delete(symbolConfig.symbol);
+        }
+      } else {
+        if (passesTrendFilter) {
+          if (buyCondition) {
+            // Create a pending buy signal requiring confirmation
+            pendingSignals.set(symbolConfig.symbol, {
+              type: 'buy',
+              entry: currOpen,
+              minVal: minimum,
+              avgVal: average,
+              candlesWaited: 0,
+              createdAt: Date.now(),
+            });
+            logEvent('signal_generated', { symbol: symbolConfig.symbol, type: 'buy', entry: currOpen, minimum, average });
+          } else if (sellCondition) {
+            pendingSignals.set(symbolConfig.symbol, {
+              type: 'sell',
+              entry: currOpen,
+              maxVal: maximum,
+              avgVal: average,
+              candlesWaited: 0,
+              createdAt: Date.now(),
+            });
+            logEvent('signal_generated', { symbol: symbolConfig.symbol, type: 'sell', entry: currOpen, maximum, average });
+          }
+        } else {
+          // Trend filter failed: ignore potential signals
+          if (buyCondition || sellCondition) {
+            logEvent('signal_filtered_out', { symbol: symbolConfig.symbol, atr, bodyRatio, buyCondition, sellCondition });
+          }
+        }
       }
 
       const latest = await mt5.copyRatesFromPos(symbolConfig.symbol, timeframe, 0, 1);
