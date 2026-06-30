@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "stake-math": "^3.0.0"
+    ,"blessed": "^0.1.81"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

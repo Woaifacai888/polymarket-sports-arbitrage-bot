@@ -7,6 +7,7 @@ import { indicator, atrAt } from './dataProcessing.js';
 import { mt5 } from './mt5/bridgeClient.js';
 import { executeBuyOrder, executeSellOrder } from './orderProcessing.js';
 import { logEvent } from './logging.js';
+import Dashboard from './ui/dashboard.js';
 import {
   CONFIRMATION_CANDLES,
   MIN_ATR,
@@ -59,11 +60,22 @@ async function connectToMt5(): Promise<void> {
 }
 
 async function runTradingLoop(symbols: SymbolConfig[]): Promise<void> {
+  const dashboard = new Dashboard();
   const pendingSignals = new Map<string, { type: 'buy' | 'sell'; entry: number; minVal?: number; maxVal?: number; avgVal: number; candlesWaited: number; createdAt: number }>();
   while (true) {
     const terminal = await mt5.terminalInfo();
+    dashboard.setStatus(terminal?.connected ? 'MT5 connected' : 'MT5 disconnected');
     if (!terminal?.connected) {
+      dashboard.logError('MT5 not connected');
+      await new Promise((r) => setTimeout(r, 2000));
       continue;
+    }
+
+    try {
+      const account = await mt5.accountInfo();
+      if (account) dashboard.updateAccount(account);
+    } catch (err) {
+      dashboard.logError(`account fetch error: ${String(err)}`);
     }
 
     for (const symbolConfig of symbols) {
@@ -166,6 +178,24 @@ async function runTradingLoop(symbols: SymbolConfig[]): Promise<void> {
             logEvent('signal_filtered_out', { symbol: symbolConfig.symbol, atr, bodyRatio, buyCondition, sellCondition });
           }
         }
+      }
+
+      // Update dashboard for this symbol
+      try {
+        const tick = await mt5.symbolInfoTick(symbolConfig.symbol);
+        const spread = tick ? Math.abs((tick.ask ?? 0) - (tick.bid ?? 0)) : 0;
+        dashboard.updateSymbol({
+          symbol: symbolConfig.symbol,
+          timeframe: symbolConfig.timeframe,
+          trend: atr >= MIN_ATR ? 'strong' : 'weak',
+          lastSignal: pending ? pending.type : undefined,
+          position: positions.length > 0 ? 'open' : 'none',
+          spread,
+          atr,
+          candleTime: new Date(rates[rates.length - 1].time * 1000).toISOString(),
+        });
+      } catch (err) {
+        dashboard.logError(`tick fetch error for ${symbolConfig.symbol}: ${String(err)}`);
       }
 
       const latest = await mt5.copyRatesFromPos(symbolConfig.symbol, timeframe, 0, 1);
