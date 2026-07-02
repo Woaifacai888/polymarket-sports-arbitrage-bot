@@ -6,13 +6,9 @@
  <img width="800" height="418" alt="whoami" src="https://github.com/user-attachments/assets/f5c8ac93-fb22-4be7-b2a0-93486fcb52a5" />
 </p>
 
-<<<<<<< HEAD
-## Overview
-=======
 ## Live Performance
 
 🎥 **Watch the trading bot execute live**
->>>>>>> d7a809d86c487e53516209b06f3ecd8a19ed249b
 
 https://github.com/user-attachments/assets/df6a93c2-c9b8-4b50-8ff4-bb863e60443b
 
