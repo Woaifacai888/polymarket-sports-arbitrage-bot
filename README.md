@@ -1,59 +1,30 @@
 # Polymarket Cross-Line Arbitrage Bot
 
-<img width="1983" height="793" alt="0f0acf14-94f9-4fc7-a95f-a5179ae14f57" src="https://github.com/user-attachments/assets/dce3d178-dd49-4c06-b639-6e4bd3908463" />
-
 > A polymarket trading bot that detects temporary pricing inefficiencies across connected Polymarket sports markets.
 
 <p align="center">
-
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](#)
-[![Node.js](https://img.shields.io/badge/Node.js-20+-green.svg)](#)
-[![License](https://img.shields.io/badge/License-MIT-orange.svg)](#)
-[![Polymarket](https://img.shields.io/badge/Platform-Polymarket-6f42c1.svg)](#)
-
+ <img width="800" height="418" alt="whoami" src="https://github.com/user-attachments/assets/f5c8ac93-fb22-4be7-b2a0-93486fcb52a5" />
 </p>
 
+<<<<<<< HEAD
 ## Overview
+=======
+## Live Performance
 
-This repository is **not a commercial product**.
+🎥 **Watch the trading bot execute live**
+>>>>>>> d7a809d86c487e53516209b06f3ecd8a19ed249b
 
-It exists for one reason:
+https://github.com/user-attachments/assets/df6a93c2-c9b8-4b50-8ff4-bb863e60443b
 
-> **To share a real working trading system instead of publishing endless AI-generated articles that provide no practical value.**
+### Connect
 
-There are thousands of blog posts explaining arbitrage.
+📧 hacki13128@gmail.com
 
-Very few people actually build one.
-
-This project is my attempt to bridge that gap.
-
-Everything inside this repository comes from building, testing, breaking, and rebuilding real trading infrastructure.
-
----
-
-### A Few Honest Notes
-
-This bot **will not magically print money.**
-
-I don't hide that.
-
-Markets evolve.
-
-Edges disappear.
-
-Liquidity changes.
-
-Competition increases.
-
-This repository is **a foundation**, not a guaranteed income machine.
-
-However, it contains many of the engineering ideas, mathematical models, and architecture that I used before becoming consistently profitable.
-
-If you're interested in quantitative trading, prediction markets, market microstructure, or TypeScript architecture, I hope you'll learn something useful.
+Have an idea for prediction markets or AI trading? Feel free to reach out.
 
 ---
 
-### Trading is Mathematics
+## Risk Mangement by Kelly Criterion
 
 While building this project I also created:
 
@@ -73,7 +44,7 @@ Those mathematical foundations have been responsible for far more of my long-ter
 
 ---
 
-### My Recommendation
+## My Recommendation
 
 If you decide to experiment with this project:
 
@@ -87,7 +58,7 @@ Happy Trading ❤️
 
 ---
 
-# Features
+## Features
 
 - ⚡ Real-time Polymarket CLOB streaming
 - 🧠 Cross-line arbitrage detection
@@ -101,7 +72,7 @@ Happy Trading ❤️
 
 ---
 
-# Strategy
+## Strategy
 
 Sports markets inside a single event should satisfy several no-arbitrage relationships.
 
@@ -145,40 +116,7 @@ Current arbitrage checks include:
 
 ---
 
-# Supported Sports
-
-By default the bot focuses on the markets where liquidity is strongest.
-
-| Sport | Markets |
-|--------|----------|
-| 🏀 NBA | Games, Futures, Draft, Trades, Props |
-| ⚽ FIFA World Cup | Match Winner, Groups, Knockout, Tournament Winner |
-
-```
-SPORT_FOCUS=nba,world_cup
-```
-
-Discovery logs look like:
-
-```
-Discovery refresh:
-
-40 events
-520 tokens
-
-NBA: 10
-World Cup: 30
-```
-
-Adding another sport only requires creating another profile inside
-
-```
-src/model/sportsRegistry.ts
-```
-
----
-
-# Quick Start
+## Quick Start
 
 ```bash
 git clone https://github.com/PolySports/polymarket-cross-line-arbitrage-bot.git
@@ -194,7 +132,7 @@ npm run start:sim
 
 ---
 
-# CLI
+### CLI
 
 ```bash
 npm start -- --mode sim
@@ -214,7 +152,7 @@ npm start -- --tag 100381
 
 ---
 
-# CLI Options
+### CLI Options
 
 | Flag | Description |
 |------|-------------|
@@ -226,7 +164,7 @@ npm start -- --tag 100381
 
 ---
 
-# Terminal Dashboard
+## Terminal Dashboard
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -251,7 +189,7 @@ Logs are written separately using **Pino** so they never corrupt the dashboard.
 
 ---
 
-# Configuration
+## Configuration
 
 See `.env.example`.
 
@@ -270,39 +208,7 @@ Important variables:
 
 ---
 
-# Kelly Stake Sizing
-
-The project sizes positions using the Kelly Criterion.
-
-```
-f* = (p − price)
-     ───────────
-      (1-price)
-```
-
-```
-stake = bankroll
-      × Kelly
-      × Fractional Kelly
-```
-
-Position sizes are automatically clamped between:
-
-- Minimum stake
-- Maximum position
-- Event exposure limits
-
-Supported for:
-
-- Locked arbitrage
-- Relative value
-- Hedged ladder trades
-
-Default configuration uses **Half Kelly (0.5)** to reduce variance.
-
----
-
-# Architecture
+## Architecture
 
 ```
                 Gamma REST
@@ -336,7 +242,7 @@ Default configuration uses **Half Kelly (0.5)** to reduce variance.
 
 ---
 
-# Live Trading
+## Live Trading
 
 Live mode requires:
 
@@ -372,7 +278,7 @@ against production endpoints.
 
 ---
 
-# Project Structure
+## Project Structure
 
 ```
 src/
@@ -417,28 +323,7 @@ src/
 
 ---
 
-# Testing
-
-```bash
-npm test
-```
-
----
-
-# Roadmap
-
-- [ ] Additional sports
-- [ ] Historical backtesting
-- [ ] Strategy plugins
-- [ ] Multi-exchange support
-- [ ] Automatic parameter optimization
-- [ ] Portfolio analytics
-- [ ] Web dashboard
-- [ ] Discord notifications
-
----
-
-# Contributing
+## Contributing
 
 Contributions are welcome.
 
@@ -451,20 +336,6 @@ Whether you're interested in:
 - performance optimization
 
 feel free to open an Issue or Pull Request.
-
----
-
-# Disclaimer
-
-This repository is provided **for educational purposes only**.
-
-Nothing contained here should be interpreted as financial advice.
-
-Prediction markets involve substantial financial risk.
-
-Always test thoroughly using simulation before deploying capital.
-
-Past performance does not guarantee future results.
 
 ---
 
