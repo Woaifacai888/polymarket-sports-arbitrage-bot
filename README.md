@@ -6,6 +6,8 @@
  <img width="800" height="418" alt="whoami" src="https://github.com/user-attachments/assets/f5c8ac93-fb22-4be7-b2a0-93486fcb52a5" />
 </p>
 
+**Who-am-i on Polymarket** -> [sold-my-car-to-bet](https://polymarket.com/@sold-my-car-to-bet)
+
 ## Live Performance
 
 🎥 **Watch the trading bot execute live**
@@ -117,9 +119,9 @@ Current arbitrage checks include:
 ## Quick Start
 
 ```bash
-git clone https://github.com/PolySports/polymarket-cross-line-arbitrage-bot.git
+git clone https://github.com/Poly-Sports/polymarket-sports-arbitrage-bot.git
 
-cd polymarket-cross-line-arbitrage-bot
+cd polymarket-sports-arbitrage-bot
 
 cp .env.example .env
 
