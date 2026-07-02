@@ -1,24 +1,12 @@
 # Polymarket Cross-Line Arbitrage Bot
 
-<img width="1983" height="793" alt="0f0acf14-94f9-4fc7-a95f-a5179ae14f57" src="https://github.com/user-attachments/assets/dce3d178-dd49-4c06-b639-6e4bd3908463" />
-
 > A polymarket trading bot that detects temporary pricing inefficiencies across connected Polymarket sports markets.
 
 <p align="center">
-
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](#)
-[![Node.js](https://img.shields.io/badge/Node.js-20+-green.svg)](#)
-[![License](https://img.shields.io/badge/License-MIT-orange.svg)](#)
-[![Polymarket](https://img.shields.io/badge/Platform-Polymarket-6f42c1.svg)](#)
-
-
+ <img width="800" height="418" alt="whoami" src="https://github.com/user-attachments/assets/f5c8ac93-fb22-4be7-b2a0-93486fcb52a5" />
 </p>
 
 ## Live Performance
-
-<p align="center">
-      <img width="800" height="418" alt="whoami" src="https://github.com/user-attachments/assets/f5c8ac93-fb22-4be7-b2a0-93486fcb52a5" />
-</p>
 
 🎥 **Watch the trading bot execute live**
 
