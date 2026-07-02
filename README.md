@@ -15,6 +15,7 @@ https://github.com/user-attachments/assets/df6a93c2-c9b8-4b50-8ff4-bb863e60443b
 ### Connect
 
 📧 hacki13128@gmail.com
+📞 https://t.me/hackonmon
 
 Have an idea for prediction markets or AI trading? Feel free to reach out.
 
