@@ -14,7 +14,7 @@ function baseMarket(overrides: Partial<ClassifiedMarket> = {}): ClassifiedMarket
     slug: 'team-a-win',
     eventId: 'e1',
     eventSlug: 'event-1',
-    eventTitle: 'Team A vs Team B',
+    eventTitle: 'A vs B',
     gameStartTime: null,
     type: 'moneyline',
     tokens: { yesTokenId: 'yes1', noTokenId: 'no1' },
