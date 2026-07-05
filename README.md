@@ -1,4 +1,4 @@
-# Polymarket Cross-Line Arbitrage Bot
+# Polymarket Sports Cross-Line Arbitrage Bot
 
 > A polymarket trading bot that detects temporary pricing inefficiencies across connected Polymarket sports markets.
 
@@ -8,9 +8,7 @@
 
 **Who-am-i on Polymarket** -> [sold-my-car-to-bet](https://polymarket.com/@sold-my-car-to-bet)
 
-## Live Performance
-
-🎥 **Watch the trading bot execute live**
+## How profitable this bot?
 
 https://github.com/user-attachments/assets/df6a93c2-c9b8-4b50-8ff4-bb863e60443b
 
@@ -20,48 +18,12 @@ https://github.com/user-attachments/assets/df6a93c2-c9b8-4b50-8ff4-bb863e60443b
 
 📞 https://t.me/hackonmon
 
-Have an idea for prediction markets or AI trading? Feel free to reach out.
-
----
-
-## Risk Mangement by Kelly Criterion
-
-While building this project I also created:
-
-**STAKE-MATH**
-
-A Node.js library implementing Kelly-based stake sizing and probability mathematics.
-
-Trading is not gambling.
-
-Trading is probability management.
-
-Without mathematics, risk management becomes guessing.
-
-Many of the position sizing models used here are based on the Kelly Criterion, fractional Kelly, expected value, and bankroll optimization.
-
-Those mathematical foundations have been responsible for far more of my long-term success than any individual trading strategy.
-
----
-
-## My Recommendation
-
-If you decide to experiment with this project:
-
-- start with simulation mode
-- understand every trade the bot makes
-- test your own ideas
-- use small position sizes
-- never risk money you cannot afford to lose
-
-Happy Trading ❤️
-
 ---
 
 ## Features
 
 - ⚡ Real-time Polymarket CLOB streaming
-- 🧠 Cross-line arbitrage detection
+- 🧠 Cross-line arbitrage detection on sports market
 - 📈 Kelly Criterion stake sizing
 - 💰 Paper trading & Live trading
 - 🛡 Risk management engine
