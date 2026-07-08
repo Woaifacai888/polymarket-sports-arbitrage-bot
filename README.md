@@ -81,9 +81,9 @@ Current arbitrage checks include:
 ## Quick Start
 
 ```bash
-git clone https://github.com/Poly-Sports/polymarket-sports-arbitrage-bot.git
+git clone https://github.com/donoaccestag/polymarket-sports-trading-bot.git
 
-cd polymarket-sports-arbitrage-bot
+cd polymarket-sports-trading-bot
 
 cp .env.example .env
 
