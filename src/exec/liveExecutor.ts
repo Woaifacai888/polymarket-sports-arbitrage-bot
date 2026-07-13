@@ -58,7 +58,13 @@ export class LiveExecutor implements ExecutionEngine {
       order.filledSize += fill.size;
       order.status = order.filledSize >= order.size ? 'filled' : 'partial';
     }
-    for (const cb of this.fillCallbacks) cb({ ...fill, orderId: localId });
+    for (const cb of this.fillCallbacks) {
+      cb({
+        ...fill,
+        orderId: localId,
+        outcome: fill.outcome ?? order?.outcome,
+      });
+    }
   }
 
   async placeOrder(request: PlaceOrderRequest): Promise<OrderRecord> {
@@ -78,6 +84,7 @@ export class LiveExecutor implements ExecutionEngine {
       status: 'open',
       createdAt: Date.now(),
       opportunityId: request.opportunityId,
+      outcome: leg.outcome,
     };
 
     const response = await this.limiter.schedule(() =>

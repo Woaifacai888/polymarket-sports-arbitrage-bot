@@ -1,6 +1,6 @@
 import type { Config, EventGraph, Opportunity } from '../config/types.js';
 import type { OrderBookStore } from '../data/orderBook.js';
-import { bpsToDecimal, uuid } from '../util/math.js';
+import { bpsToDecimal } from '../util/math.js';
 import {
   checkBttsPair,
   checkComplementaryPair,
@@ -17,6 +17,7 @@ export class ArbDetector {
 
   scan(graphs: EventGraph[], store: OrderBookStore): Opportunity[] {
     const opportunities: Opportunity[] = [];
+    const seen = new Set<string>();
 
     for (const graph of graphs) {
       const ctx: RelationContext = {
@@ -40,7 +41,8 @@ export class ArbDetector {
 
       for (const violation of violations) {
         const opp = buildOpportunity(ctx, violation);
-        opp.id = uuid();
+        if (seen.has(opp.id)) continue;
+        seen.add(opp.id);
         opportunities.push(opp);
       }
     }

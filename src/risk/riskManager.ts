@@ -1,4 +1,6 @@
 import type { Config, EventGraph, FillEvent, Opportunity } from '../config/types.js';
+import type { OrderBookStore } from '../data/orderBook.js';
+import { checkOpportunityLiquidity, isBookFresh } from '../arb/liquidity.js';
 import { legNotional } from '../exec/executor.js';
 import { bpsToDecimal } from '../util/math.js';
 
@@ -7,12 +9,16 @@ export class RiskManager {
   private dailyRealizedPnl = 0;
   private killSwitch = false;
   private eventExposure = new Map<string, number>();
+  private openOrderCount = 0;
 
   constructor(private readonly config: Config) {}
 
   resetDaily(_startBalance: number): void {
     this.dailyRealizedPnl = 0;
     this.killSwitch = false;
+    this.eventExposure.clear();
+    this.seenOpportunities.clear();
+    this.openOrderCount = 0;
   }
 
   recordRealizedPnl(delta: number): void {
@@ -20,6 +26,10 @@ export class RiskManager {
     if (this.dailyRealizedPnl <= -this.config.dailyLossLimitUsd) {
       this.killSwitch = true;
     }
+  }
+
+  getDailyRealizedPnl(): number {
+    return this.dailyRealizedPnl;
   }
 
   isKillSwitchActive(): boolean {
@@ -30,7 +40,27 @@ export class RiskManager {
     this.killSwitch = true;
   }
 
-  approve(opportunity: Opportunity, graph: EventGraph, balance: number): {
+  setOpenOrderCount(count: number): void {
+    this.openOrderCount = count;
+  }
+
+  getEventExposure(eventId: string): number {
+    return this.eventExposure.get(eventId) ?? 0;
+  }
+
+  releaseEventExposure(eventId: string, notional: number): void {
+    const current = this.eventExposure.get(eventId) ?? 0;
+    const next = Math.max(0, current - notional);
+    if (next <= 0) this.eventExposure.delete(eventId);
+    else this.eventExposure.set(eventId, next);
+  }
+
+  approve(
+    opportunity: Opportunity,
+    graph: EventGraph,
+    balance: number,
+    store?: OrderBookStore,
+  ): {
     approved: boolean;
     reason?: string;
   } {
@@ -42,9 +72,14 @@ export class RiskManager {
       return { approved: false, reason: 'Net edge below threshold' };
     }
 
+    const cooldownMs = this.config.opportunityCooldownMs;
     const lastSeen = this.seenOpportunities.get(opportunity.id);
-    if (lastSeen && Date.now() - lastSeen < 5_000) {
+    if (lastSeen && Date.now() - lastSeen < cooldownMs) {
       return { approved: false, reason: 'Duplicate opportunity cooldown' };
+    }
+
+    if (this.openOrderCount >= this.config.maxOpenOrders) {
+      return { approved: false, reason: 'Max open orders reached' };
     }
 
     const notional = opportunity.legs.reduce((acc, leg) => acc + legNotional(leg), 0);
@@ -60,6 +95,23 @@ export class RiskManager {
       return { approved: false, reason: 'Event exposure cap exceeded' };
     }
 
+    if (store) {
+      const freshness = isBookFresh(store, opportunity.legs, this.config.maxBookAgeMs);
+      if (!freshness.fresh) {
+        return { approved: false, reason: freshness.reason ?? 'Stale order book' };
+      }
+
+      const liquidity = checkOpportunityLiquidity(opportunity, store);
+      if (!liquidity.ok) {
+        return { approved: false, reason: liquidity.reason ?? 'Insufficient liquidity' };
+      }
+    }
+
+    // Reject packages with missing/zero-priced legs (edge case)
+    if (opportunity.legs.some((l) => !(l.price > 0) || !(l.size > 0))) {
+      return { approved: false, reason: 'Invalid leg price or size' };
+    }
+
     return { approved: true };
   }
 
@@ -70,7 +122,7 @@ export class RiskManager {
   }
 
   onFill(fill: FillEvent): void {
-    // exposure tracked at execution time; fills update portfolio separately
+    // Fills are attributed in portfolio; exposure is reserved at markExecuted.
     void fill;
   }
 }

@@ -12,6 +12,7 @@ const LOCKED_ARB_RELATIONS: RelationType[] = [
   'three_way_sum',
   'totals_ladder',
   'spread_ladder',
+  'moneyline_spread',
 ];
 
 export interface SizedOpportunity extends Opportunity {

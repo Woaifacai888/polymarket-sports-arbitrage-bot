@@ -17,12 +17,25 @@ export interface RelationViolation {
   netEdge: number;
 }
 
+/** Stable fingerprint so duplicate cooldown / risk tracking works across scans. */
+export function opportunityFingerprint(
+  eventId: string,
+  relation: RelationType,
+  legs: Array<{ tokenId: string; side: string; outcome: string }>,
+): string {
+  const legKey = legs
+    .map((l) => `${l.tokenId}:${l.side}:${l.outcome}`)
+    .sort()
+    .join('|');
+  return `${eventId}:${relation}:${legKey}`;
+}
+
 export function buildOpportunity(
   ctx: RelationContext,
   violation: RelationViolation,
 ): Opportunity {
   return {
-    id: `${ctx.eventId}-${violation.relation}-${Date.now()}`,
+    id: opportunityFingerprint(ctx.eventId, violation.relation, violation.legs),
     eventId: ctx.eventId,
     eventTitle: ctx.eventTitle,
     relation: violation.relation,

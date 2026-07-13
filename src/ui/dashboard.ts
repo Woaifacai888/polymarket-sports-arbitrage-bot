@@ -20,7 +20,6 @@ export class Dashboard {
   private readonly exposureGauge: any;
   private readonly orderLog: any;
   private readonly alertLog: any;
-  private paused = false;
 
   constructor(private readonly options: DashboardOptions = {}) {
     this.screen = blessed.screen({
@@ -53,11 +52,11 @@ export class Dashboard {
       selectedBg: 'green',
       label: ' Opportunities ',
       columnSpacing: 2,
-      columnWidth: [12, 24, 8, 8, 10],
+      columnWidth: [14, 22, 8, 8, 10],
     });
 
     this.pnlLine = this.grid.set(5, 0, 3, 8, contrib.line, {
-      label: ' PnL ',
+      label: ' Total PnL (realized + MTM) ',
       style: { line: 'yellow', text: 'green', baseline: 'black' },
       wholeNumbersOnly: false,
       showLegend: true,
@@ -84,7 +83,9 @@ export class Dashboard {
 
     this.grid.set(11, 0, 1, 12, blessed.box, {
       tags: true,
-      content: ' {bold}[p]{/bold} pause  {bold}[f]{/bold} flatten/cancel-all  {bold}[q]{/bold} quit ',
+      content:
+        ' {bold}[p]{/bold} pause  {bold}[f]{/bold} flatten  {bold}[q]{/bold} quit  |  ' +
+        'Depth + tick-rounded limits  |  Multi-leg rollback on fail ',
       style: { fg: 'cyan' },
     });
 
@@ -93,9 +94,8 @@ export class Dashboard {
 
   private bindKeys(): void {
     this.screen.key(['p', 'P'], () => {
-      this.paused = !this.paused;
       this.options.onPauseToggle?.();
-      this.logAlert(this.paused ? 'Bot paused' : 'Bot resumed');
+      this.logAlert('Pause toggled');
     });
 
     this.screen.key(['f', 'F'], () => {
@@ -129,8 +129,10 @@ export class Dashboard {
   }
 
   logFill(fill: FillEvent): void {
+    const outcome = fill.outcome ? ` ${fill.outcome}` : '';
     this.orderLog.log(
-      `${fill.mode.toUpperCase()} ${fill.side} ${fill.size}@${fill.price.toFixed(3)} token=${fill.tokenId.slice(0, 8)}...`,
+      `${fill.mode.toUpperCase()} ${fill.side}${outcome} ${fill.size}@${fill.price.toFixed(3)} ` +
+        `mkt=${fill.marketId.slice(0, 8)}`,
     );
     this.screen.render();
   }
@@ -149,12 +151,24 @@ export class Dashboard {
           ? '{green-fg}UP{/green-fg}'
           : '{red-fg}DOWN{/red-fg}'
         : 'n/a';
+    const runState = status.killSwitch
+      ? '{red-fg}KILL SWITCH{/red-fg}'
+      : status.paused
+        ? '{yellow-fg}PAUSED{/yellow-fg}'
+        : '{green-fg}RUNNING{/green-fg}';
+    const pnlColor =
+      status.portfolio.totalPnl >= 0 ? '{green-fg}' : '{red-fg}';
+    const dailyColor =
+      status.dailyRealizedPnl >= 0 ? '{green-fg}' : '{red-fg}';
 
     this.headerBox.setContent(
-      ` Mode: ${modeColor}  |  WS: ${ws}  UserWS: ${userWs}  |  ` +
-        `Events: ${status.trackedEvents}  Markets: ${status.trackedMarkets}  Tokens: ${status.trackedTokens}  |  ` +
-        `Balance: ${formatUsd(status.portfolio.balance)}  PnL: ${formatUsd(status.portfolio.totalPnl)}  |  ` +
-        `Uptime: ${uptimeSec}s  ${status.paused ? '{yellow-fg}PAUSED{/yellow-fg}' : '{green-fg}RUNNING{/green-fg}'}`,
+      ` ${modeColor}  WS:${ws} User:${userWs}  ` +
+        `Ev:${status.trackedEvents} Mkt:${status.trackedMarkets} Tok:${status.trackedTokens} Open:${status.openOrders}  |  ` +
+        `Cash ${formatUsd(status.portfolio.balance)}  ` +
+        `PnL ${pnlColor}${formatUsd(status.portfolio.totalPnl)}{/} ` +
+        `(R ${formatUsd(status.portfolio.realizedPnl)} / U ${formatUsd(status.portfolio.unrealizedPnl)})  |  ` +
+        `Day ${dailyColor}${formatUsd(status.dailyRealizedPnl)}{/}/${formatUsd(-status.dailyLossLimitUsd)}  ` +
+        `${runState}  ${uptimeSec}s`,
     );
   }
 
@@ -179,7 +193,7 @@ export class Dashboard {
       ['Relation', 'Description', 'Gross', 'Net', 'Status'],
       ...opps.slice(0, 20).map((o) => [
         o.relation,
-        truncate(o.description, 22),
+        truncate(o.description, 20),
         formatPct(o.grossEdge, 2),
         formatPct(o.netEdge, 2),
         o.status,
@@ -215,10 +229,14 @@ export class Dashboard {
   }
 
   private renderExposureGauge(status: EngineStatus): void {
-    const max = 1000;
+    const max = Math.max(1, status.exposureLimitUsd);
     const pct = Math.min(100, Math.round((status.portfolio.exposure / max) * 100));
+    const stroke = pct >= 80 ? 'red' : pct >= 50 ? 'yellow' : 'green';
+    this.exposureGauge.setOptions?.({ stroke });
     this.exposureGauge.setPercent(pct);
-    this.exposureGauge.setLabel(` Exposure ${formatUsd(status.portfolio.exposure)} `);
+    this.exposureGauge.setLabel(
+      ` Exp ${formatUsd(status.portfolio.exposure)} / ${formatUsd(max)} `,
+    );
   }
 }
 

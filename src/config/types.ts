@@ -36,6 +36,10 @@ export const ConfigSchema = z.object({
   kellyFraction: z.number().positive().max(1).default(0.5),
   minStakeUsd: z.number().nonnegative().default(5),
   confirmLive: z.boolean().default(false),
+  maxOpenOrders: z.number().positive().default(20),
+  maxBookAgeMs: z.number().positive().default(15_000),
+  orderPlaceRetries: z.number().int().nonnegative().default(2),
+  opportunityCooldownMs: z.number().positive().default(5_000),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -103,6 +107,18 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       ? Number(process.env.MIN_STAKE_USD)
       : overrides.minStakeUsd,
     confirmLive: overrides.confirmLive ?? process.env.CONFIRM_LIVE === 'true',
+    maxOpenOrders: process.env.MAX_OPEN_ORDERS
+      ? Number(process.env.MAX_OPEN_ORDERS)
+      : overrides.maxOpenOrders,
+    maxBookAgeMs: process.env.MAX_BOOK_AGE_MS
+      ? Number(process.env.MAX_BOOK_AGE_MS)
+      : overrides.maxBookAgeMs,
+    orderPlaceRetries: process.env.ORDER_PLACE_RETRIES
+      ? Number(process.env.ORDER_PLACE_RETRIES)
+      : overrides.orderPlaceRetries,
+    opportunityCooldownMs: process.env.OPPORTUNITY_COOLDOWN_MS
+      ? Number(process.env.OPPORTUNITY_COOLDOWN_MS)
+      : overrides.opportunityCooldownMs,
     ...overrides,
   };
 
@@ -221,6 +237,7 @@ export interface FillEvent {
   size: number;
   timestamp: number;
   mode: 'sim' | 'live';
+  outcome?: 'YES' | 'NO';
 }
 
 export interface OrderRecord {
@@ -234,6 +251,7 @@ export interface OrderRecord {
   status: 'open' | 'partial' | 'filled' | 'cancelled';
   createdAt: number;
   opportunityId?: string;
+  outcome?: 'YES' | 'NO';
 }
 
 export interface Position {
@@ -258,17 +276,22 @@ export interface PortfolioSnapshot {
 export interface EngineStatus {
   mode: 'sim' | 'live';
   paused: boolean;
+  killSwitch: boolean;
   uptimeMs: number;
   wsConnected: boolean;
   userWsConnected: boolean;
   trackedEvents: number;
   trackedMarkets: number;
   trackedTokens: number;
+  openOrders: number;
   opportunities: Opportunity[];
   recentFills: FillEvent[];
   alerts: string[];
   portfolio: PortfolioSnapshot;
   marketRows: MarketRow[];
+  exposureLimitUsd: number;
+  dailyRealizedPnl: number;
+  dailyLossLimitUsd: number;
 }
 
 export interface MarketRow {

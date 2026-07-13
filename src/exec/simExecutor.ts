@@ -42,6 +42,7 @@ export class SimExecutor implements ExecutionEngine {
       status: 'open',
       createdAt: Date.now(),
       opportunityId: request.opportunityId,
+      outcome: leg.outcome,
     };
 
     this.orders.set(order.id, order);
@@ -100,6 +101,7 @@ export class SimExecutor implements ExecutionEngine {
       size: remaining,
       timestamp: Date.now(),
       mode: 'sim',
+      outcome: order.outcome,
     };
 
     for (const cb of this.fillCallbacks) cb(fill);

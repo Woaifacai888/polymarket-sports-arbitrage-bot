@@ -62,8 +62,13 @@ export class Engine {
       this.executor = this.simExecutor;
     }
 
-    this.orderManager = new OrderManager(this.executor);
-    this.risk.resetDaily(this.executor.getBalance());
+    this.orderManager = new OrderManager(this.executor, {
+      placeRetries: config.orderPlaceRetries,
+      rollbackOnFailure: true,
+    });
+    this.risk.resetDaily(
+      config.mode === 'sim' ? config.simInitialBalance : this.executor.getBalance(),
+    );
   }
 
   async start(): Promise<void> {
@@ -182,6 +187,7 @@ export class Engine {
     if (!this.running) return;
 
     this.simExecutor?.processRestingOrders();
+    this.risk.setOpenOrderCount(this.executor.getOpenOrders().length);
 
     for (const graph of this.graphs) {
       await this.orderManager.cancelAllAtGameStart(graph);
@@ -194,9 +200,11 @@ export class Engine {
         const graph = this.graphs.find((g) => g.eventId === opp.eventId);
         if (!graph) continue;
 
-        const sized = this.stakeSizer.apply(opp, this.executor.getBalance());
+        // Prefer portfolio cash (unified ledger); fall back to executor balance.
+        const bankroll = Math.max(this.portfolio.getBalance(), this.executor.getBalance());
+        const sized = this.stakeSizer.apply(opp, bankroll);
 
-        const decision = this.risk.approve(sized, graph, this.executor.getBalance());
+        const decision = this.risk.approve(sized, graph, bankroll, this.store);
         if (!decision.approved) continue;
         if (this.orderManager.isInFlight(sized.id)) continue;
 
@@ -207,7 +215,9 @@ export class Engine {
         const ok = await this.orderManager.executeOpportunity(sized, metaByMarket);
         if (ok) {
           this.risk.markExecuted(sized, graph);
-          this.dashboard?.logOrder(`Executed ${sized.relation}: ${sized.description}`);
+          this.dashboard?.logOrder(`Placed ${sized.relation}: ${sized.description}`);
+        } else if (decision.approved) {
+          this.dashboard?.logOrder(`Rejected ${sized.relation}: placement failed`);
         }
       }
     }
@@ -221,7 +231,17 @@ export class Engine {
   }
 
   private handleFill(fill: FillEvent): void {
+    const realizedBefore = this.portfolio.getRealizedPnl();
     this.portfolio.applyFill(fill);
+    const realizedDelta = this.portfolio.getRealizedPnl() - realizedBefore;
+    if (realizedDelta !== 0) {
+      this.risk.recordRealizedPnl(realizedDelta);
+    }
+    // Sim executor owns cash; portfolio owns positions — resync cash after each fill.
+    if (this.simExecutor) {
+      this.portfolio.setBalance(this.executor.getBalance());
+    }
+    this.risk.onFill(fill);
     this.recentFills.unshift(fill);
     if (this.recentFills.length > 50) this.recentFills.pop();
     this.dashboard?.logFill(fill);
@@ -232,17 +252,22 @@ export class Engine {
     return {
       mode: this.config.mode,
       paused: this.paused,
+      killSwitch: this.risk.isKillSwitchActive(),
       uptimeMs: Date.now() - this.startTime,
       wsConnected: this.marketSocket?.connected ?? false,
       userWsConnected: this.userSocket?.connected ?? false,
       trackedEvents: this.graphs.length,
       trackedMarkets: this.graphs.reduce((n, g) => n + g.markets.length, 0),
       trackedTokens: flattenTokenIds(this.graphs).length,
+      openOrders: this.executor.getOpenOrders().length,
       opportunities: this.opportunities,
       recentFills: this.recentFills,
       alerts: this.alerts.slice(-20),
       portfolio,
       marketRows: this.buildMarketRows(),
+      exposureLimitUsd: this.config.maxEventExposureUsd,
+      dailyRealizedPnl: this.risk.getDailyRealizedPnl(),
+      dailyLossLimitUsd: this.config.dailyLossLimitUsd,
     };
   }
 

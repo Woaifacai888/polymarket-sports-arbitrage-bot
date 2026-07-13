@@ -1,6 +1,6 @@
 import type { ClassifiedMarket, Leg } from '../config/types.js';
 import type { OrderBookStore } from '../data/orderBook.js';
-import { applySlippage, bpsToDecimal, clamp, mul, sub, sum } from '../util/math.js';
+import { applySlippage, bpsToDecimal, clamp, sub, sum } from '../util/math.js';
 import type { RelationContext, RelationViolation } from './types.js';
 
 function buyLeg(
@@ -85,7 +85,7 @@ export function checkTotalsLadder(
       const hedgePrice = applySlippage(higherNoAsk, ctx.slippageBps, 'BUY');
       const totalCost = buyPrice + hedgePrice;
       const grossEdge = sub(1, totalCost);
-      const netEdge = sub(grossEdge, mul(totalCost, bpsToDecimal(ctx.feeBps)));
+      const netEdge = netEdgeFromCost(totalCost, 1, ctx);
       if (netEdge < ctx.minNetEdge) continue;
 
       return {
@@ -128,7 +128,7 @@ export function checkSpreadLadder(
       const hedgePrice = applySlippage(easierNoAsk, ctx.slippageBps, 'BUY');
       const totalCost = buyPrice + hedgePrice;
       const grossEdge = sub(1, totalCost);
-      const netEdge = sub(grossEdge, mul(totalCost, bpsToDecimal(ctx.feeBps)));
+      const netEdge = netEdgeFromCost(totalCost, 1, ctx);
       if (netEdge < ctx.minNetEdge) continue;
 
       return {
@@ -165,23 +165,27 @@ export function checkMoneylineSpread(
   const diff = Math.abs(mlAsk - spAsk);
   if (diff <= 0.02) return null;
 
-  const lagging = mlAsk > spAsk ? ml : sp;
-  const leading = mlAsk > spAsk ? sp : ml;
-  const lagAsk = getAsk(store, lagging, 'YES');
-  const leadAsk = getAsk(store, leading, 'YES');
-  if (lagAsk == null || leadAsk == null) return null;
+  const cheaper = mlAsk < spAsk ? ml : sp;
+  const expensive = mlAsk < spAsk ? sp : ml;
+  const cheapAsk = getAsk(store, cheaper, 'YES');
+  const expensiveNoAsk = getAsk(store, expensive, 'NO');
+  if (cheapAsk == null || expensiveNoAsk == null) return null;
 
-  const grossEdge = sub(lagAsk, leadAsk);
-  const netEdge = sub(grossEdge, mul(lagAsk + leadAsk, bpsToDecimal(ctx.feeBps)));
+  // Near-equivalent markets: buy cheap YES + expensive NO when package costs < $1.
+  const size = clamp(ctx.maxLegSize, 1, 100);
+  const buyPrice = applySlippage(cheapAsk, ctx.slippageBps, 'BUY');
+  const hedgePrice = applySlippage(expensiveNoAsk, ctx.slippageBps, 'BUY');
+  const totalCost = buyPrice + hedgePrice;
+  const grossEdge = sub(1, totalCost);
+  const netEdge = netEdgeFromCost(totalCost, 1, ctx);
   if (netEdge < ctx.minNetEdge) return null;
 
-  const size = clamp(ctx.maxLegSize, 1, 100);
   return {
     relation: 'moneyline_spread',
-    description: `ML/spread desync: ML ${mlAsk.toFixed(3)} vs spread ${spAsk.toFixed(3)}`,
+    description: `ML/spread desync: ML ${mlAsk.toFixed(3)} vs spread ${spAsk.toFixed(3)} (YES+NO=${totalCost.toFixed(3)})`,
     legs: [
-      buyLeg(lagging, 'YES', applySlippage(lagAsk, ctx.slippageBps, 'BUY'), size),
-      buyLeg(leading, 'NO', sub(1, leadAsk), size),
+      buyLeg(cheaper, 'YES', buyPrice, size),
+      buyLeg(expensive, 'NO', hedgePrice, size),
     ],
     grossEdge,
     netEdge,
