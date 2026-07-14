@@ -34,12 +34,14 @@ export const ConfigSchema = z.object({
   discoveryRefreshMs: z.number().positive().default(60_000),
   maxDiscoveryEvents: z.number().positive().default(80),
   kellyFraction: z.number().positive().max(1).default(0.5),
-  minStakeUsd: z.number().nonnegative().default(5),
+  /** Target package notional per opportunity (USD). Locked arbs size to this. */
+  minStakeUsd: z.number().nonnegative().default(100),
   confirmLive: z.boolean().default(false),
   maxOpenOrders: z.number().positive().default(20),
   maxBookAgeMs: z.number().positive().default(15_000),
   orderPlaceRetries: z.number().int().nonnegative().default(2),
   opportunityCooldownMs: z.number().positive().default(5_000),
+  tradeHistoryDir: z.string().default('data/trades'),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -119,6 +121,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     opportunityCooldownMs: process.env.OPPORTUNITY_COOLDOWN_MS
       ? Number(process.env.OPPORTUNITY_COOLDOWN_MS)
       : overrides.opportunityCooldownMs,
+    tradeHistoryDir: process.env.TRADE_HISTORY_DIR ?? overrides.tradeHistoryDir,
     ...overrides,
   };
 
@@ -285,13 +288,18 @@ export interface EngineStatus {
   trackedTokens: number;
   openOrders: number;
   opportunities: Opportunity[];
+  /** Live scan + recently seen/executed (for Opportunities panel). */
+  displayOpportunities: Opportunity[];
   recentFills: FillEvent[];
+  tradeHistory: import('../portfolio/tradeHistory.js').TradeHistoryRecord[];
+  tradeHistoryPath: string;
   alerts: string[];
   portfolio: PortfolioSnapshot;
   marketRows: MarketRow[];
   exposureLimitUsd: number;
   dailyRealizedPnl: number;
   dailyLossLimitUsd: number;
+  targetOrderUsd: number;
 }
 
 export interface MarketRow {

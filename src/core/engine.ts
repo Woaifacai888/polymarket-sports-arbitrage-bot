@@ -1,5 +1,6 @@
 import type { Config, EngineStatus, EventGraph, FillEvent, MarketRow, Opportunity } from '../config/types.js';
 import { ArbDetector } from '../arb/detector.js';
+import { clampLegsToLiquidity } from '../arb/liquidity.js';
 import { ClobRestClient } from '../data/clobRest.js';
 import { GammaClient } from '../data/gammaClient.js';
 import { MarketSocket } from '../data/marketSocket.js';
@@ -7,9 +8,11 @@ import { OrderBookStore } from '../data/orderBook.js';
 import { UserSocket } from '../data/userSocket.js';
 import { buildEventGraphs, flattenTokenIds } from '../model/eventGraph.js';
 import { SPORT_PROFILES } from '../model/sportsRegistry.js';
+import { OpportunityHistory } from '../portfolio/opportunityHistory.js';
 import { PortfolioTracker } from '../portfolio/positions.js';
+import { TradeHistoryStore } from '../portfolio/tradeHistory.js';
 import { RiskManager } from '../risk/riskManager.js';
-import { StakeSizer } from '../risk/stakeSizer.js';
+import { StakeSizer, totalLegNotional } from '../risk/stakeSizer.js';
 import type { ExecutionEngine } from '../exec/executor.js';
 import { LiveExecutor, createLiveClobClient } from '../exec/liveExecutor.js';
 import { OrderManager } from '../exec/orderManager.js';
@@ -25,6 +28,8 @@ export class Engine {
   private readonly risk: RiskManager;
   private readonly stakeSizer: StakeSizer;
   private readonly portfolio: PortfolioTracker;
+  private readonly tradeHistory: TradeHistoryStore;
+  private readonly opportunityHistory = new OpportunityHistory(40);
   private readonly executor: ExecutionEngine;
   private readonly orderManager: OrderManager;
   private simExecutor: SimExecutor | null = null;
@@ -51,6 +56,10 @@ export class Engine {
     this.risk = new RiskManager(config);
     this.stakeSizer = new StakeSizer(config);
     this.portfolio = new PortfolioTracker(config.simInitialBalance);
+    this.tradeHistory = new TradeHistoryStore({
+      mode: config.mode,
+      dir: config.tradeHistoryDir,
+    });
 
     if (config.mode === 'live') {
       this.liveExecutor = new LiveExecutor({
@@ -126,6 +135,8 @@ export class Engine {
 
     log.info({ mode: this.config.mode }, 'Engine started');
     this.addAlert(`Engine started in ${this.config.mode.toUpperCase()} mode`);
+    this.addAlert(`Target order size $${this.config.minStakeUsd}`);
+    this.addAlert(`Trade history → ${this.tradeHistory.getFilePath()}`);
   }
 
   async stop(): Promise<void> {
@@ -194,18 +205,30 @@ export class Engine {
     }
 
     this.opportunities = this.detector.scan(this.graphs, this.store);
+    this.opportunityHistory.upsertScan(this.opportunities);
 
     if (!this.paused && !this.risk.isKillSwitchActive()) {
       for (const opp of this.opportunities.slice(0, 3)) {
         const graph = this.graphs.find((g) => g.eventId === opp.eventId);
         if (!graph) continue;
 
-        // Prefer portfolio cash (unified ledger); fall back to executor balance.
         const bankroll = Math.max(this.portfolio.getBalance(), this.executor.getBalance());
-        const sized = this.stakeSizer.apply(opp, bankroll);
+        let sized = this.stakeSizer.apply(opp, bankroll);
+        // Prefer $100 target, but never request more size than visible ask depth.
+        sized = clampLegsToLiquidity(sized, this.store);
+        const notional = totalLegNotional(sized.legs);
+        // Skip dust after depth clamp; prefer full $target when book allows.
+        if (notional < 10) {
+          continue;
+        }
 
         const decision = this.risk.approve(sized, graph, bankroll, this.store);
-        if (!decision.approved) continue;
+        if (!decision.approved) {
+          if (decision.reason && !decision.reason.includes('cooldown')) {
+            this.opportunityHistory.markStatus(sized.id, 'rejected', sized);
+          }
+          continue;
+        }
         if (this.orderManager.isInFlight(sized.id)) continue;
 
         const metaByMarket = new Map(
@@ -215,8 +238,14 @@ export class Engine {
         const ok = await this.orderManager.executeOpportunity(sized, metaByMarket);
         if (ok) {
           this.risk.markExecuted(sized, graph);
-          this.dashboard?.logOrder(`Placed ${sized.relation}: ${sized.description}`);
-        } else if (decision.approved) {
+          this.opportunityHistory.markStatus(sized.id, sized.status, sized);
+          this.tradeHistory.recordPlacement(sized, totalLegNotional(sized.legs));
+          this.dashboard?.logOrder(
+            `Placed ${sized.relation} $${totalLegNotional(sized.legs).toFixed(0)}: ${sized.description}`,
+          );
+        } else {
+          this.opportunityHistory.markStatus(sized.id, 'rejected', sized);
+          this.tradeHistory.recordReject(sized, 'placement failed');
           this.dashboard?.logOrder(`Rejected ${sized.relation}: placement failed`);
         }
       }
@@ -237,11 +266,11 @@ export class Engine {
     if (realizedDelta !== 0) {
       this.risk.recordRealizedPnl(realizedDelta);
     }
-    // Sim executor owns cash; portfolio owns positions — resync cash after each fill.
     if (this.simExecutor) {
       this.portfolio.setBalance(this.executor.getBalance());
     }
     this.risk.onFill(fill);
+    this.tradeHistory.recordFill(fill);
     this.recentFills.unshift(fill);
     if (this.recentFills.length > 50) this.recentFills.pop();
     this.dashboard?.logFill(fill);
@@ -249,6 +278,7 @@ export class Engine {
 
   private buildStatus(): EngineStatus {
     const portfolio = this.portfolio.snapshot(this.store);
+    const displayOpportunities = this.opportunityHistory.listForDisplay(this.opportunities, 20);
     return {
       mode: this.config.mode,
       paused: this.paused,
@@ -261,13 +291,17 @@ export class Engine {
       trackedTokens: flattenTokenIds(this.graphs).length,
       openOrders: this.executor.getOpenOrders().length,
       opportunities: this.opportunities,
+      displayOpportunities,
       recentFills: this.recentFills,
+      tradeHistory: this.tradeHistory.getRecent(30),
+      tradeHistoryPath: this.tradeHistory.getFilePath(),
       alerts: this.alerts.slice(-20),
       portfolio,
       marketRows: this.buildMarketRows(),
       exposureLimitUsd: this.config.maxEventExposureUsd,
       dailyRealizedPnl: this.risk.getDailyRealizedPnl(),
       dailyLossLimitUsd: this.config.dailyLossLimitUsd,
+      targetOrderUsd: this.config.minStakeUsd,
     };
   }
 

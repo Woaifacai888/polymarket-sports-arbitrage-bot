@@ -83,6 +83,6 @@ describe('StakeSizer', () => {
     const sized = sizer.apply(opp, 10_000);
     assert.ok(sized.legs[0].size >= 1);
     assert.ok(sized.legs[1].size === sized.legs[0].size);
-    assert.ok(sized.description.includes('Kelly'));
+    assert.ok(sized.description.includes('sh/leg'));
   });
 });

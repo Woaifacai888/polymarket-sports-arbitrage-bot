@@ -50,7 +50,7 @@ export class Dashboard {
       fg: 'white',
       selectedFg: 'white',
       selectedBg: 'green',
-      label: ' Opportunities ',
+      label: ' Opportunities (live + recent) ',
       columnSpacing: 2,
       columnWidth: [14, 22, 8, 8, 10],
     });
@@ -72,7 +72,7 @@ export class Dashboard {
     this.orderLog = this.grid.set(8, 0, 3, 6, contrib.log, {
       fg: 'green',
       selectedFg: 'green',
-      label: ' Orders / Fills ',
+      label: ' Orders / Fills / History ',
     });
 
     this.alertLog = this.grid.set(8, 6, 3, 6, contrib.log, {
@@ -112,9 +112,12 @@ export class Dashboard {
   render(status: EngineStatus): void {
     this.renderHeader(status);
     this.renderMarketsTable(status.marketRows);
-    this.renderOppsTable(status.opportunities);
+    this.renderOppsTable(status.displayOpportunities?.length ? status.displayOpportunities : status.opportunities);
     this.renderPnlChart(status);
     this.renderExposureGauge(status);
+    this.oppsTable.setLabel(
+      ` Opportunities live:${status.opportunities.length} shown:${(status.displayOpportunities ?? status.opportunities).length} `,
+    );
     this.screen.render();
   }
 
@@ -164,7 +167,7 @@ export class Dashboard {
     this.headerBox.setContent(
       ` ${modeColor}  WS:${ws} User:${userWs}  ` +
         `Ev:${status.trackedEvents} Mkt:${status.trackedMarkets} Tok:${status.trackedTokens} Open:${status.openOrders}  |  ` +
-        `Cash ${formatUsd(status.portfolio.balance)}  ` +
+        `Order~${formatUsd(status.targetOrderUsd)}  Cash ${formatUsd(status.portfolio.balance)}  ` +
         `PnL ${pnlColor}${formatUsd(status.portfolio.totalPnl)}{/} ` +
         `(R ${formatUsd(status.portfolio.realizedPnl)} / U ${formatUsd(status.portfolio.unrealizedPnl)})  |  ` +
         `Day ${dailyColor}${formatUsd(status.dailyRealizedPnl)}{/}/${formatUsd(-status.dailyLossLimitUsd)}  ` +

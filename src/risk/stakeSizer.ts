@@ -30,15 +30,24 @@ export class StakeSizer {
 
     const allInPrice = packageAllInPrice(legs.map((l) => l.price));
     const winProbability = estimateWinProbability(opportunity);
-    const stakeUsd = computeKellyStake({
-      probability: winProbability,
-      allInPrice,
-      bankroll,
-      maxStake: this.config.maxPositionUsd,
-      minStake: this.config.minStakeUsd,
-      kellyFraction: this.config.kellyFraction,
-    });
+    const targetUsd = this.config.minStakeUsd;
 
+    let stakeUsd: number;
+    if (LOCKED_ARB_RELATIONS.includes(opportunity.relation)) {
+      // Structural arb: Kelly is often ≤0 when all-in ≈ 1; size to target order USD.
+      stakeUsd = Math.min(this.config.maxPositionUsd, targetUsd, bankroll);
+    } else {
+      stakeUsd = computeKellyStake({
+        probability: winProbability,
+        allInPrice,
+        bankroll,
+        maxStake: this.config.maxPositionUsd,
+        minStake: targetUsd,
+        kellyFraction: this.config.kellyFraction,
+      });
+    }
+
+    // Ensure package notional ≈ targetUsd (share count from all-in cost).
     const shareCount = sharesFromKellyStake(stakeUsd, legs.map((l) => l.price));
     const sizedLegs = legs.map((leg) => ({
       ...leg,
@@ -48,23 +57,20 @@ export class StakeSizer {
     return {
       ...opportunity,
       legs: sizedLegs,
-      description: `${opportunity.description} [Kelly $${stakeUsd.toFixed(2)}, ${shareCount} sh/leg]`,
+      description: `${opportunity.description} [$${stakeUsd.toFixed(0)} / ${shareCount} sh/leg]`,
     };
   }
 }
 
 function estimateWinProbability(opportunity: Opportunity): number {
   if (LOCKED_ARB_RELATIONS.includes(opportunity.relation)) {
-    // Structural arb: payout ≥ $1 per unit when all legs fill; treat as near-certain.
     return Math.min(0.999, 0.95 + opportunity.netEdge);
   }
 
   if (opportunity.relation === 'moneyline_spread') {
-    // Relative-value trade — scale confidence from net edge.
     return clamp(0.52 + opportunity.netEdge * 3, 0.52, 0.92);
   }
 
-  // Fallback: edge-implied probability capped below certainty
   return clamp(0.5 + opportunity.netEdge * 2, 0.51, 0.9);
 }
 

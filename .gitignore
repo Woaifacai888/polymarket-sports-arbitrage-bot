@@ -1,6 +1,7 @@
 node_modules/
 dist/
 logs/
+data/trades/
 .env
 *.log
 .DS_Store
