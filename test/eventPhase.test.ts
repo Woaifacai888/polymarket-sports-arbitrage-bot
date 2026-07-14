@@ -4,6 +4,7 @@ import {
   classifyEventPhase,
   filterTrackableGraphs,
   getSportTypicalDurationMs,
+  isPhaseTrackable,
 } from '../src/model/eventPhase.js';
 import type { EventGraph } from '../src/config/types.js';
 
@@ -54,24 +55,45 @@ describe('classifyEventPhase', () => {
   });
 });
 
-describe('filterTrackableGraphs', () => {
+describe('isPhaseTrackable', () => {
+  it('finished is never trackable, regardless of mode', () => {
+    assert.equal(isPhaseTrackable('finished', false), false);
+    assert.equal(isPhaseTrackable('finished', true), false);
+  });
+
+  it('live is trackable by default, excluded only in upcoming-only mode', () => {
+    assert.equal(isPhaseTrackable('live', false), true);
+    assert.equal(isPhaseTrackable('live', true), false);
+  });
+
+  it('upcoming is always trackable', () => {
+    assert.equal(isPhaseTrackable('upcoming', false), true);
+    assert.equal(isPhaseTrackable('upcoming', true), true);
+  });
+});
+
+describe('filterTrackableGraphs (default: upcoming + live, exclude finished)', () => {
   const baseOptions = {
-    trackUpcomingOnly: true,
+    trackUpcomingOnly: false,
     maxLookaheadMs: 14 * 24 * HOUR,
     allowUnknownPhase: true,
   };
 
-  it('keeps upcoming games and drops live/finished ones (this is the reported bug)', () => {
+  it('tracks scheduled upcoming AND ongoing matches, excludes only finished ones', () => {
     const upcoming = graph({ eventId: 'e-upcoming', gameStartTime: new Date(Date.now() + 2 * HOUR) });
     const live = graph({ eventId: 'e-live', gameStartTime: new Date(Date.now() - HOUR) });
     const finished = graph({ eventId: 'e-finished', gameStartTime: new Date(Date.now() - 6 * HOUR) });
 
     const { kept, skipped } = filterTrackableGraphs([upcoming, live, finished], baseOptions);
 
-    assert.deepEqual(kept.map((g) => g.eventId), ['e-upcoming']);
-    assert.equal(skipped.length, 2);
-    assert.ok(skipped.some((s) => s.graph.eventId === 'e-live' && s.phase === 'live'));
-    assert.ok(skipped.some((s) => s.graph.eventId === 'e-finished' && s.phase === 'finished'));
+    assert.deepEqual(
+      kept.map((g) => g.eventId).sort(),
+      ['e-live', 'e-upcoming'],
+    );
+    assert.equal(skipped.length, 1);
+    assert.equal(skipped[0].graph.eventId, 'e-finished');
+    assert.equal(skipped[0].phase, 'finished');
+    assert.equal(skipped[0].reason, 'Game finished');
   });
 
   it('drops games scheduled beyond the lookahead window', () => {
@@ -96,10 +118,25 @@ describe('filterTrackableGraphs', () => {
     assert.equal(kept.length, 0);
     assert.equal(skipped[0].reason, 'Unknown game start time');
   });
+});
 
-  it('allows live games through when trackUpcomingOnly is false', () => {
-    const live = graph({ gameStartTime: new Date(Date.now() - HOUR) });
-    const { kept } = filterTrackableGraphs([live], { ...baseOptions, trackUpcomingOnly: false });
-    assert.equal(kept.length, 1);
+describe('filterTrackableGraphs (strict trackUpcomingOnly: true)', () => {
+  const baseOptions = {
+    trackUpcomingOnly: true,
+    maxLookaheadMs: 14 * 24 * HOUR,
+    allowUnknownPhase: true,
+  };
+
+  it('keeps only upcoming games, drops both live and finished', () => {
+    const upcoming = graph({ eventId: 'e-upcoming', gameStartTime: new Date(Date.now() + 2 * HOUR) });
+    const live = graph({ eventId: 'e-live', gameStartTime: new Date(Date.now() - HOUR) });
+    const finished = graph({ eventId: 'e-finished', gameStartTime: new Date(Date.now() - 6 * HOUR) });
+
+    const { kept, skipped } = filterTrackableGraphs([upcoming, live, finished], baseOptions);
+
+    assert.deepEqual(kept.map((g) => g.eventId), ['e-upcoming']);
+    assert.equal(skipped.length, 2);
+    assert.ok(skipped.some((s) => s.graph.eventId === 'e-live' && s.phase === 'live'));
+    assert.ok(skipped.some((s) => s.graph.eventId === 'e-finished' && s.phase === 'finished'));
   });
 });

@@ -42,7 +42,11 @@ export function getEventPhase(
 }
 
 export interface TrackabilityOptions {
-  /** When true (default), only 'upcoming' games are tradable. */
+  /**
+   * When true, ONLY 'upcoming' (pre-game) matches are tradable — live games
+   * are also excluded. When false (default), both 'upcoming' and 'live'
+   * matches are tradable; only 'finished' games are always excluded.
+   */
   trackUpcomingOnly: boolean;
   /** Games starting further than this ahead are deferred to a later refresh. */
   maxLookaheadMs: number;
@@ -57,10 +61,22 @@ export interface TrackabilityResult {
 }
 
 /**
+ * Decides whether a given phase should be tradable under the current options.
+ * 'finished' is always excluded — a game that's over should never be scanned
+ * for fresh arb, regardless of Gamma's active/closed settlement flags.
+ */
+export function isPhaseTrackable(phase: EventPhase, trackUpcomingOnly: boolean): boolean {
+  if (phase === 'finished') return false;
+  if (phase === 'live') return !trackUpcomingOnly;
+  return true; // 'upcoming' and 'unknown' handled by caller
+}
+
+/**
  * Filters event graphs down to ones that should actually be scanned for
- * arbitrage: scheduled matches that haven't started yet (and aren't
- * scheduled so far out that lines are still forming), excluding in-play
- * and already-finished games.
+ * arbitrage. By default this keeps scheduled AND in-progress matches, and
+ * only excludes games that have already finished (Gamma's active/closed
+ * flags can stay "active" long after a match ends, pending settlement).
+ * Set `trackUpcomingOnly: true` for a stricter pre-game-only mode.
  */
 export function filterTrackableGraphs(
   graphs: EventGraph[],
@@ -82,8 +98,13 @@ export function filterTrackableGraphs(
       continue;
     }
 
-    if (options.trackUpcomingOnly && phase !== 'upcoming') {
-      skipped.push({ graph, phase, reason: `Game is ${phase}` });
+    if (phase === 'finished') {
+      skipped.push({ graph, phase, reason: 'Game finished' });
+      continue;
+    }
+
+    if (phase === 'live' && options.trackUpcomingOnly) {
+      skipped.push({ graph, phase, reason: 'Game live (upcoming-only mode)' });
       continue;
     }
 

@@ -7,7 +7,7 @@ import { MarketSocket } from '../data/marketSocket.js';
 import { OrderBookStore } from '../data/orderBook.js';
 import { UserSocket } from '../data/userSocket.js';
 import { buildEventGraphs, flattenTokenIds } from '../model/eventGraph.js';
-import { filterTrackableGraphs, getEventPhase } from '../model/eventPhase.js';
+import { filterTrackableGraphs, getEventPhase, isPhaseTrackable } from '../model/eventPhase.js';
 import { SPORT_PROFILES } from '../model/sportsRegistry.js';
 import { OpportunityHistory } from '../portfolio/opportunityHistory.js';
 import { PortfolioTracker } from '../portfolio/positions.js';
@@ -174,10 +174,10 @@ export class Engine {
       if (kept.length === 0 && skipped.length > 0) {
         getLogger().warn(
           { skipped: skipped.length },
-          'All discovered events filtered out as live/finished/too-far-ahead; keeping previous graph',
+          'All discovered events filtered out as finished/too-far-ahead; keeping previous graph',
         );
         this.addAlert(
-          `Discovery refresh: ${skipped.length} events found but none upcoming (live/finished/out-of-window)`,
+          `Discovery refresh: ${skipped.length} events found but none trackable (finished/out-of-window)`,
         );
         return;
       }
@@ -191,9 +191,9 @@ export class Engine {
       }
 
       this.addAlert(
-        `Discovery refresh: ${this.graphs.length} upcoming events, ${tokenIds.length} tokens ` +
+        `Discovery refresh: ${this.graphs.length} trackable events, ${tokenIds.length} tokens ` +
           `(${formatSportCounts(this.graphs)})` +
-          (skipped.length > 0 ? ` — skipped ${skipped.length} live/finished` : ''),
+          (skipped.length > 0 ? ` — skipped ${skipped.length} finished/out-of-window` : ''),
       );
 
       for (const s of skipped.slice(0, 5)) {
@@ -228,12 +228,15 @@ export class Engine {
       await this.orderManager.cancelAllAtGameStart(graph);
     }
 
-    // Defensive real-time check: a game can go live between discovery
-    // refreshes (up to discoveryRefreshMs stale). Never scan for arbs on
-    // matches that have started or finished, even if still in this.graphs.
-    const scanGraphs = this.config.trackUpcomingOnly
-      ? this.graphs.filter((g) => getEventPhase(g) === 'upcoming' || getEventPhase(g) === 'unknown')
-      : this.graphs;
+    // Defensive real-time check: a game can finish (or go live, in strict
+    // upcoming-only mode) between discovery refreshes (up to
+    // discoveryRefreshMs stale). Never scan for arbs on finished matches,
+    // even if still present in this.graphs.
+    const scanGraphs = this.graphs.filter((g) => {
+      const phase = getEventPhase(g);
+      if (phase === 'unknown') return true;
+      return isPhaseTrackable(phase, this.config.trackUpcomingOnly);
+    });
 
     this.opportunities = this.detector.scan(scanGraphs, this.store);
     this.opportunityHistory.upsertScan(this.opportunities);

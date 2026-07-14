@@ -42,8 +42,8 @@ export const ConfigSchema = z.object({
   orderPlaceRetries: z.number().int().nonnegative().default(2),
   opportunityCooldownMs: z.number().positive().default(5_000),
   tradeHistoryDir: z.string().default('data/trades'),
-  /** Only trade markets whose game hasn't started yet (excludes live/finished). */
-  trackUpcomingOnly: z.boolean().default(true),
+  /** When true, only pre-game (upcoming) matches are tradable; live is also excluded. */
+  trackUpcomingOnly: z.boolean().default(false),
   /** Ignore games scheduled further ahead than this (lines aren't stable yet). */
   maxLookaheadHours: z.number().positive().default(24 * 14),
   /** Keep events when gameStartTime can't be resolved (fail-open vs fail-closed). */
