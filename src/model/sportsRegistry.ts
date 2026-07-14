@@ -17,7 +17,15 @@ export interface SportProfile {
   tagLabels: string[];
   /** Exclude if title/tags contain any of these */
   excludeKeywords: string[];
+  /**
+   * Conservative upper bound on how long a game can run from scheduled start
+   * to final whistle/buzzer (includes OT/ET/penalties + broadcast buffer).
+   * Used to distinguish "upcoming" from "live"/"finished" for discovery.
+   */
+  typicalDurationMs: number;
 }
+
+const HOUR_MS = 60 * 60 * 1000;
 
 export const SPORT_PROFILES: Record<SportId, SportProfile> = {
   nba: {
@@ -29,6 +37,8 @@ export const SPORT_PROFILES: Record<SportId, SportProfile> = {
     titleKeywords: ['nba'],
     tagLabels: ['nba'],
     excludeKeywords: ['wnba', 'ncaab', 'ncaa', 'fiba', 'bkarg', 'bkfiba'],
+    // Regulation + broadcast breaks ~2.5h; allow for OT and delays.
+    typicalDurationMs: 3.5 * HOUR_MS,
   },
   world_cup: {
     id: 'world_cup',
@@ -47,6 +57,8 @@ export const SPORT_PROFILES: Record<SportId, SportProfile> = {
       'tt world cup',
       'hockey world',
     ],
+    // 90 min + HT + stoppage ~2h; knockout rounds can add ET + penalties.
+    typicalDurationMs: 3 * HOUR_MS,
   },
 };
 

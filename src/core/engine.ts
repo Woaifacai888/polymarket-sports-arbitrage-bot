@@ -7,6 +7,7 @@ import { MarketSocket } from '../data/marketSocket.js';
 import { OrderBookStore } from '../data/orderBook.js';
 import { UserSocket } from '../data/userSocket.js';
 import { buildEventGraphs, flattenTokenIds } from '../model/eventGraph.js';
+import { filterTrackableGraphs, getEventPhase } from '../model/eventPhase.js';
 import { SPORT_PROFILES } from '../model/sportsRegistry.js';
 import { OpportunityHistory } from '../portfolio/opportunityHistory.js';
 import { PortfolioTracker } from '../portfolio/positions.js';
@@ -153,8 +154,8 @@ export class Engine {
   private async refreshDiscovery(): Promise<void> {
     try {
       const events = await this.gamma.discoverEvents();
-      const graphs = buildEventGraphs(events, this.config.sportFocus);
-      if (graphs.length === 0) {
+      const rawGraphs = buildEventGraphs(events, this.config.sportFocus);
+      if (rawGraphs.length === 0) {
         getLogger().warn('Discovery returned no tradable sports events; keeping previous graph');
         this.addAlert(
           this.graphs.length > 0
@@ -164,7 +165,24 @@ export class Engine {
         return;
       }
 
-      this.graphs = graphs;
+      const { kept, skipped } = filterTrackableGraphs(rawGraphs, {
+        trackUpcomingOnly: this.config.trackUpcomingOnly,
+        maxLookaheadMs: this.config.maxLookaheadHours * 60 * 60 * 1000,
+        allowUnknownPhase: this.config.allowUnknownPhase,
+      });
+
+      if (kept.length === 0 && skipped.length > 0) {
+        getLogger().warn(
+          { skipped: skipped.length },
+          'All discovered events filtered out as live/finished/too-far-ahead; keeping previous graph',
+        );
+        this.addAlert(
+          `Discovery refresh: ${skipped.length} events found but none upcoming (live/finished/out-of-window)`,
+        );
+        return;
+      }
+
+      this.graphs = kept;
       const tokenIds = flattenTokenIds(this.graphs);
 
       if (tokenIds.length > 0) {
@@ -173,8 +191,14 @@ export class Engine {
       }
 
       this.addAlert(
-        `Discovery refresh: ${this.graphs.length} events, ${tokenIds.length} tokens (${formatSportCounts(this.graphs)})`,
+        `Discovery refresh: ${this.graphs.length} upcoming events, ${tokenIds.length} tokens ` +
+          `(${formatSportCounts(this.graphs)})` +
+          (skipped.length > 0 ? ` — skipped ${skipped.length} live/finished` : ''),
       );
+
+      for (const s of skipped.slice(0, 5)) {
+        getLogger().info({ event: s.graph.slug, phase: s.phase, reason: s.reason }, 'Skipped non-upcoming event');
+      }
     } catch (error) {
       getLogger().error({ error }, 'Discovery refresh failed');
       this.addAlert('Discovery refresh failed');
@@ -204,12 +228,19 @@ export class Engine {
       await this.orderManager.cancelAllAtGameStart(graph);
     }
 
-    this.opportunities = this.detector.scan(this.graphs, this.store);
+    // Defensive real-time check: a game can go live between discovery
+    // refreshes (up to discoveryRefreshMs stale). Never scan for arbs on
+    // matches that have started or finished, even if still in this.graphs.
+    const scanGraphs = this.config.trackUpcomingOnly
+      ? this.graphs.filter((g) => getEventPhase(g) === 'upcoming' || getEventPhase(g) === 'unknown')
+      : this.graphs;
+
+    this.opportunities = this.detector.scan(scanGraphs, this.store);
     this.opportunityHistory.upsertScan(this.opportunities);
 
     if (!this.paused && !this.risk.isKillSwitchActive()) {
       for (const opp of this.opportunities.slice(0, 3)) {
-        const graph = this.graphs.find((g) => g.eventId === opp.eventId);
+        const graph = scanGraphs.find((g) => g.eventId === opp.eventId);
         if (!graph) continue;
 
         const bankroll = Math.max(this.portfolio.getBalance(), this.executor.getBalance());

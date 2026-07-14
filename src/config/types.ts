@@ -42,6 +42,12 @@ export const ConfigSchema = z.object({
   orderPlaceRetries: z.number().int().nonnegative().default(2),
   opportunityCooldownMs: z.number().positive().default(5_000),
   tradeHistoryDir: z.string().default('data/trades'),
+  /** Only trade markets whose game hasn't started yet (excludes live/finished). */
+  trackUpcomingOnly: z.boolean().default(true),
+  /** Ignore games scheduled further ahead than this (lines aren't stable yet). */
+  maxLookaheadHours: z.number().positive().default(24 * 14),
+  /** Keep events when gameStartTime can't be resolved (fail-open vs fail-closed). */
+  allowUnknownPhase: z.boolean().default(true),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -122,6 +128,19 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       ? Number(process.env.OPPORTUNITY_COOLDOWN_MS)
       : overrides.opportunityCooldownMs,
     tradeHistoryDir: process.env.TRADE_HISTORY_DIR ?? overrides.tradeHistoryDir,
+    trackUpcomingOnly:
+      overrides.trackUpcomingOnly ??
+      (process.env.TRACK_UPCOMING_ONLY != null
+        ? process.env.TRACK_UPCOMING_ONLY === 'true'
+        : undefined),
+    maxLookaheadHours: process.env.MAX_LOOKAHEAD_HOURS
+      ? Number(process.env.MAX_LOOKAHEAD_HOURS)
+      : overrides.maxLookaheadHours,
+    allowUnknownPhase:
+      overrides.allowUnknownPhase ??
+      (process.env.ALLOW_UNKNOWN_PHASE != null
+        ? process.env.ALLOW_UNKNOWN_PHASE === 'true'
+        : undefined),
     ...overrides,
   };
 
