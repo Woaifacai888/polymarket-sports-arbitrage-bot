@@ -7,7 +7,12 @@ import { MarketSocket } from '../data/marketSocket.js';
 import { OrderBookStore } from '../data/orderBook.js';
 import { UserSocket } from '../data/userSocket.js';
 import { buildEventGraphs, flattenTokenIds } from '../model/eventGraph.js';
-import { filterTrackableGraphs, getEventPhase, isPhaseTrackable } from '../model/eventPhase.js';
+import {
+  classifyEventPhase,
+  filterTrackableGraphs,
+  getEventPhase,
+  isPhaseTrackable,
+} from '../model/eventPhase.js';
 import { SPORT_PROFILES } from '../model/sportsRegistry.js';
 import { OpportunityHistory } from '../portfolio/opportunityHistory.js';
 import { PortfolioTracker } from '../portfolio/positions.js';
@@ -341,10 +346,14 @@ export class Engine {
 
   private buildMarketRows(): MarketRow[] {
     const rows: MarketRow[] = [];
+    const now = Date.now();
+
     for (const graph of this.graphs) {
       for (const market of graph.markets) {
         const yesBid = this.store.bestBid(market.tokens.yesTokenId);
         const yesAsk = this.store.bestAsk(market.tokens.yesTokenId);
+        const gameStartTime = market.gameStartTime ?? graph.gameStartTime;
+        const phase = classifyEventPhase(gameStartTime, graph.sportId, now);
         rows.push({
           sport: graph.sportId ? SPORT_PROFILES[graph.sportId].label : '-',
           eventTitle: graph.title,
@@ -353,10 +362,29 @@ export class Engine {
           bestBid: yesBid,
           bestAsk: yesAsk,
           impliedProb: this.store.impliedProb(market.tokens.yesTokenId),
+          phase,
+          gameStartTime: gameStartTime ? gameStartTime.getTime() : null,
         });
       }
     }
-    return rows;
+
+    // Surface the most actionable rows first: live games, then soonest
+    // upcoming kickoff, then unknown/finished at the bottom.
+    const phaseRank: Record<MarketRow['phase'], number> = {
+      live: 0,
+      upcoming: 1,
+      unknown: 2,
+      finished: 3,
+    };
+
+    return rows.sort((a, b) => {
+      const rankDiff = phaseRank[a.phase] - phaseRank[b.phase];
+      if (rankDiff !== 0) return rankDiff;
+      const aTime = a.gameStartTime ?? Number.POSITIVE_INFINITY;
+      const bTime = b.gameStartTime ?? Number.POSITIVE_INFINITY;
+      if (aTime !== bTime) return aTime - bTime;
+      return a.eventTitle.localeCompare(b.eventTitle);
+    });
   }
 
   private addAlert(message: string): void {

@@ -329,4 +329,8 @@ export interface MarketRow {
   bestBid: number | null;
   bestAsk: number | null;
   impliedProb: number | null;
+  /** Game lifecycle derived from gameStartTime (see model/eventPhase.ts). */
+  phase: 'upcoming' | 'live' | 'finished' | 'unknown';
+  /** Epoch ms of scheduled game start, if known. */
+  gameStartTime: number | null;
 }
