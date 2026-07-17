@@ -1,7 +1,22 @@
 import type { ClassifiedMarket, Leg } from '../config/types.js';
 import type { OrderBookStore } from '../data/orderBook.js';
+import { marketSubjectKey } from '../model/marketClassifier.js';
 import { applySlippage, bpsToDecimal, clamp, sub, sum } from '../util/math.js';
 import type { RelationContext, RelationViolation } from './types.js';
+
+const LINE_EPSILON = 1e-9;
+
+/** Ladder rungs must measure the same quantity; group by line-stripped question. */
+function groupBySubject(markets: ClassifiedMarket[]): ClassifiedMarket[][] {
+  const groups = new Map<string, ClassifiedMarket[]>();
+  for (const market of markets) {
+    const key = marketSubjectKey(market.question);
+    const group = groups.get(key);
+    if (group) group.push(market);
+    else groups.set(key, [market]);
+  }
+  return [...groups.values()];
+}
 
 function buyLeg(
   market: ClassifiedMarket,
@@ -64,40 +79,52 @@ export function checkTotalsLadder(
   markets: ClassifiedMarket[],
   ctx: RelationContext,
 ): RelationViolation | null {
-  const totals = markets
-    .filter((m) => m.type === 'total' && m.line != null)
-    .sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+  // Only Over-side markets share YES monotonicity; Under is inverse and
+  // cross-subject rungs (team totals vs match totals) are not comparable.
+  const totals = markets.filter(
+    (m) => m.type === 'total' && m.line != null && m.side !== 'under',
+  );
 
-  for (let i = 0; i < totals.length - 1; i++) {
-    const lower = totals[i];
-    const higher = totals[i + 1];
-    const lowerAsk = getAsk(store, lower, 'YES');
-    const higherAsk = getAsk(store, higher, 'YES');
-    if (lowerAsk == null || higherAsk == null) continue;
+  for (const group of groupBySubject(totals)) {
+    if (group.length < 2) continue;
+    const sorted = [...group].sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
 
-    // P(Over lower line) should be >= P(Over higher line)
-    if (lowerAsk + 0.001 < higherAsk) {
-      const higherNoAsk = getAsk(store, higher, 'NO');
-      if (higherNoAsk == null) continue;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const lower = sorted[i];
+      const higher = sorted[i + 1];
+      // Equal lines = duplicate/parallel markets, not a ladder rung.
+      if ((higher.line ?? 0) - (lower.line ?? 0) < LINE_EPSILON) continue;
 
-      const size = clamp(ctx.maxLegSize, 1, 100);
-      const buyPrice = applySlippage(lowerAsk, ctx.slippageBps, 'BUY');
-      const hedgePrice = applySlippage(higherNoAsk, ctx.slippageBps, 'BUY');
-      const totalCost = buyPrice + hedgePrice;
-      const grossEdge = sub(1, totalCost);
-      const netEdge = netEdgeFromCost(totalCost, 1, ctx);
-      if (netEdge < ctx.minNetEdge) continue;
+      const lowerAsk = getAsk(store, lower, 'YES');
+      const higherAsk = getAsk(store, higher, 'YES');
+      if (lowerAsk == null || higherAsk == null) continue;
 
-      return {
-        relation: 'totals_ladder',
-        description: `Totals inversion: Over ${lower.line} (${lowerAsk.toFixed(3)}) < Over ${higher.line} (${higherAsk.toFixed(3)})`,
-        legs: [
-          buyLeg(lower, 'YES', buyPrice, size),
-          buyLeg(higher, 'NO', hedgePrice, size),
-        ],
-        grossEdge,
-        netEdge,
-      };
+      // P(Over lower line) should be >= P(Over higher line)
+      if (lowerAsk + 0.001 < higherAsk) {
+        const higherNoAsk = getAsk(store, higher, 'NO');
+        if (higherNoAsk == null) continue;
+
+        const size = clamp(ctx.maxLegSize, 1, 100);
+        // Edge from raw asks (fee+slippage applied once in netEdgeFromCost);
+        // limit prices carry the slippage buffer to improve fill odds.
+        const rawCost = lowerAsk + higherNoAsk;
+        const grossEdge = sub(1, rawCost);
+        const netEdge = netEdgeFromCost(rawCost, 1, ctx);
+        if (netEdge < ctx.minNetEdge) continue;
+
+        const buyPrice = applySlippage(lowerAsk, ctx.slippageBps, 'BUY');
+        const hedgePrice = applySlippage(higherNoAsk, ctx.slippageBps, 'BUY');
+        return {
+          relation: 'totals_ladder',
+          description: `Totals inversion: Over ${lower.line} (${lowerAsk.toFixed(3)}) < Over ${higher.line} (${higherAsk.toFixed(3)})`,
+          legs: [
+            buyLeg(lower, 'YES', buyPrice, size),
+            buyLeg(higher, 'NO', hedgePrice, size),
+          ],
+          grossEdge,
+          netEdge,
+        };
+      }
     }
   }
   return null;
@@ -108,39 +135,45 @@ export function checkSpreadLadder(
   markets: ClassifiedMarket[],
   ctx: RelationContext,
 ): RelationViolation | null {
-  const spreads = markets
-    .filter((m) => m.type === 'spread' && m.line != null)
-    .sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+  const spreads = markets.filter((m) => m.type === 'spread' && m.line != null);
 
-  for (let i = 0; i < spreads.length - 1; i++) {
-    const easier = spreads[i];
-    const harder = spreads[i + 1];
-    const easierAsk = getAsk(store, easier, 'YES');
-    const harderAsk = getAsk(store, harder, 'YES');
-    if (easierAsk == null || harderAsk == null) continue;
+  for (const group of groupBySubject(spreads)) {
+    if (group.length < 2) continue;
+    const sorted = [...group].sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
 
-    if (easierAsk + 0.001 < harderAsk) {
-      const easierNoAsk = getAsk(store, easier, 'NO');
-      if (easierNoAsk == null) continue;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const easier = sorted[i];
+      const harder = sorted[i + 1];
+      // Equal lines = duplicate/parallel markets, not a ladder rung.
+      if ((harder.line ?? 0) - (easier.line ?? 0) < LINE_EPSILON) continue;
 
-      const size = clamp(ctx.maxLegSize, 1, 100);
-      const buyPrice = applySlippage(harderAsk, ctx.slippageBps, 'BUY');
-      const hedgePrice = applySlippage(easierNoAsk, ctx.slippageBps, 'BUY');
-      const totalCost = buyPrice + hedgePrice;
-      const grossEdge = sub(1, totalCost);
-      const netEdge = netEdgeFromCost(totalCost, 1, ctx);
-      if (netEdge < ctx.minNetEdge) continue;
+      const easierAsk = getAsk(store, easier, 'YES');
+      const harderAsk = getAsk(store, harder, 'YES');
+      if (easierAsk == null || harderAsk == null) continue;
 
-      return {
-        relation: 'spread_ladder',
-        description: `Spread inversion: ${easier.line} (${easierAsk.toFixed(3)}) < ${harder.line} (${harderAsk.toFixed(3)})`,
-        legs: [
-          buyLeg(harder, 'YES', buyPrice, size),
-          buyLeg(easier, 'NO', hedgePrice, size),
-        ],
-        grossEdge,
-        netEdge,
-      };
+      if (easierAsk + 0.001 < harderAsk) {
+        const easierNoAsk = getAsk(store, easier, 'NO');
+        if (easierNoAsk == null) continue;
+
+        const size = clamp(ctx.maxLegSize, 1, 100);
+        const rawCost = harderAsk + easierNoAsk;
+        const grossEdge = sub(1, rawCost);
+        const netEdge = netEdgeFromCost(rawCost, 1, ctx);
+        if (netEdge < ctx.minNetEdge) continue;
+
+        const buyPrice = applySlippage(harderAsk, ctx.slippageBps, 'BUY');
+        const hedgePrice = applySlippage(easierNoAsk, ctx.slippageBps, 'BUY');
+        return {
+          relation: 'spread_ladder',
+          description: `Spread inversion: ${easier.line} (${easierAsk.toFixed(3)}) < ${harder.line} (${harderAsk.toFixed(3)})`,
+          legs: [
+            buyLeg(harder, 'YES', buyPrice, size),
+            buyLeg(easier, 'NO', hedgePrice, size),
+          ],
+          grossEdge,
+          netEdge,
+        };
+      }
     }
   }
   return null;
@@ -155,8 +188,10 @@ export function checkMoneylineSpread(
   if (moneylines.length === 0 || spreads.length === 0) return null;
 
   const ml = moneylines[0];
-  const spreadAtZero = spreads.find((s) => s.line === 0 || s.line === -0 || s.line === 0.0);
-  const sp = spreadAtZero ?? spreads[0];
+  // Only a zero-line spread is equivalent to the moneyline. A -7.5 spread is
+  // a different bet — comparing it to ML is not an arbitrage.
+  const sp = spreads.find((s) => s.line === 0);
+  if (!sp) return null;
 
   const mlAsk = getAsk(store, ml, 'YES');
   const spAsk = getAsk(store, sp, 'YES');

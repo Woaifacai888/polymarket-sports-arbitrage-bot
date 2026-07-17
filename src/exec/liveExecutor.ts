@@ -1,4 +1,5 @@
 import type { FillEvent, OrderRecord } from '../config/types.js';
+import { enrichFill } from '../portfolio/fillCosts.js';
 import { createRateLimiter } from '../util/rateLimiter.js';
 import { getLogger } from '../util/logger.js';
 import { uuid } from '../util/math.js';
@@ -27,8 +28,13 @@ export class LiveExecutor implements ExecutionEngine {
   private fillCallbacks: Array<(fill: FillEvent) => void> = [];
   private readonly limiter = createRateLimiter({ minTime: 25, maxConcurrent: 3 });
   private balance = 0;
+  private feeBps = 0;
 
   constructor(private readonly deps: LiveExecutorDeps) {}
+
+  setFeeBps(feeBps: number): void {
+    this.feeBps = feeBps;
+  }
 
   async init(): Promise<void> {
     this.client = await this.deps.createClient();
@@ -51,6 +57,10 @@ export class LiveExecutor implements ExecutionEngine {
     return [...this.orders.values()].filter((o) => o.status === 'open' || o.status === 'partial');
   }
 
+  getOrder(orderId: string): OrderRecord | undefined {
+    return this.orders.get(orderId);
+  }
+
   handleExternalFill(fill: FillEvent): void {
     const localId = this.remoteToLocal.get(fill.orderId) ?? fill.orderId;
     const order = this.orders.get(localId);
@@ -58,12 +68,17 @@ export class LiveExecutor implements ExecutionEngine {
       order.filledSize += fill.size;
       order.status = order.filledSize >= order.size ? 'filled' : 'partial';
     }
-    for (const cb of this.fillCallbacks) {
-      cb({
+    const enriched = enrichFill(
+      {
         ...fill,
         orderId: localId,
         outcome: fill.outcome ?? order?.outcome,
-      });
+      },
+      this.feeBps,
+      order?.opportunityId,
+    );
+    for (const cb of this.fillCallbacks) {
+      cb(enriched);
     }
   }
 

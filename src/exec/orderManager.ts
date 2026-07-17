@@ -106,27 +106,29 @@ export class OrderManager {
 
     const now = Date.now();
     const startMs = event.gameStartTime.getTime();
-    const windowMs = 5 * 60 * 1000;
 
-    if (now >= startMs && now - startMs <= windowMs) {
-      // Cancel only open orders tied to this event's markets when possible
-      const marketIds = new Set(event.markets.map((m) => m.id));
-      const open = this.engine.getOpenOrders().filter((o) => marketIds.has(o.marketId));
-      if (open.length === 0) {
-        this.gameStartHandled.add(event.eventId);
-        return;
-      }
+    // No upper time bound: if the bot was paused/busy/restarted and missed
+    // kickoff, stale resting orders must still be cancelled whenever the
+    // next tick lands — not only within the first few minutes.
+    if (now < startMs) return;
 
-      for (const order of open) {
-        try {
-          await this.engine.cancelOrder(order.id);
-        } catch (error) {
-          log().error({ error, orderId: order.id }, 'Game-start cancel failed');
-        }
-      }
+    // Cancel only open orders tied to this event's markets when possible
+    const marketIds = new Set(event.markets.map((m) => m.id));
+    const open = this.engine.getOpenOrders().filter((o) => marketIds.has(o.marketId));
+    if (open.length === 0) {
       this.gameStartHandled.add(event.eventId);
-      log().warn({ event: event.slug, cancelled: open.length }, 'Cancelled event orders at game start');
+      return;
     }
+
+    for (const order of open) {
+      try {
+        await this.engine.cancelOrder(order.id);
+      } catch (error) {
+        log().error({ error, orderId: order.id }, 'Game-start cancel failed');
+      }
+    }
+    this.gameStartHandled.add(event.eventId);
+    log().warn({ event: event.slug, cancelled: open.length }, 'Cancelled event orders at game start');
   }
 
   isInFlight(opportunityId: string): boolean {

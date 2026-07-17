@@ -31,23 +31,33 @@ export const SPORT_PROFILES: Record<SportId, SportProfile> = {
   nba: {
     id: 'nba',
     label: 'NBA',
+    // NOTE: tag 100639 ("Games") is Polymarket's generic video-game/esports
+    // category, not an NBA tag - do not add it here. It was previously
+    // included and pulled unrelated esports events into discovery.
     sportCodes: ['nba'],
-    tagIds: [745, 100639],
+    tagIds: [745],
     seriesIds: ['10345'],
     titleKeywords: ['nba'],
     tagLabels: ['nba'],
-    excludeKeywords: ['wnba', 'ncaab', 'ncaa', 'fiba', 'bkarg', 'bkfiba'],
+    excludeKeywords: ['wnba', 'ncaab', 'ncaa', 'fiba', 'bkarg', 'bkfiba', 'esports', 'nba 2k', '2k'],
     // Regulation + broadcast breaks ~2.5h; allow for OT and delays.
     typicalDurationMs: 3.5 * HOUR_MS,
   },
   world_cup: {
     id: 'world_cup',
     label: 'World Cup',
+    // NOTE: tag 100639 ("Games") is Polymarket's generic video-game/esports
+    // category, not a soccer tag - do not add it here (see excludeKeywords
+    // comment below for why that matters).
     sportCodes: ['fifwc', 'fif'],
-    tagIds: [102232, 100350, 100639],
+    tagIds: [102232, 100350],
     seriesIds: ['11433'],
     titleKeywords: ['world cup', 'fifa world cup'],
     tagLabels: ['world cup', 'fifa'],
+    // Esports tournaments are frequently branded "Esports World Cup", "LoL
+    // World Championship", etc. - a plain `title.includes('world cup')`
+    // check matches those too, so esports/game keywords must be excluded
+    // *before* the title-keyword check runs (exclude wins over include).
     excludeKeywords: [
       'club world cup',
       'women',
@@ -56,6 +66,24 @@ export const SPORT_PROFILES: Record<SportId, SportProfile> = {
       'table tennis',
       'tt world cup',
       'hockey world',
+      'esports',
+      'league of legends',
+      'lol:',
+      'dota',
+      'valorant',
+      'counter-strike',
+      'csgo',
+      'cs2',
+      'overwatch',
+      'call of duty',
+      'starcraft',
+      'rocket league',
+      'rainbow six',
+      'apex legends',
+      'mobile legends',
+      'free fire',
+      'pubg',
+      'fortnite',
     ],
     // 90 min + HT + stoppage ~2h; knockout rounds can add ET + penalties.
     typicalDurationMs: 3 * HOUR_MS,

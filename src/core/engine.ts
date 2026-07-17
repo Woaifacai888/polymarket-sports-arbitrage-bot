@@ -15,7 +15,10 @@ import {
 } from '../model/eventPhase.js';
 import { SPORT_PROFILES } from '../model/sportsRegistry.js';
 import { OpportunityHistory } from '../portfolio/opportunityHistory.js';
+import { ArbTradePnlTracker } from '../portfolio/arbTradePnl.js';
+import { enrichFill } from '../portfolio/fillCosts.js';
 import { PortfolioTracker } from '../portfolio/positions.js';
+import { settleFinishedEvent } from '../portfolio/settlement.js';
 import { TradeHistoryStore } from '../portfolio/tradeHistory.js';
 import { RiskManager } from '../risk/riskManager.js';
 import { StakeSizer, totalLegNotional } from '../risk/stakeSizer.js';
@@ -35,6 +38,7 @@ export class Engine {
   private readonly stakeSizer: StakeSizer;
   private readonly portfolio: PortfolioTracker;
   private readonly tradeHistory: TradeHistoryStore;
+  private readonly arbTradePnl: ArbTradePnlTracker;
   private readonly opportunityHistory = new OpportunityHistory(40);
   private readonly executor: ExecutionEngine;
   private readonly orderManager: OrderManager;
@@ -53,6 +57,9 @@ export class Engine {
   private tickTimer: NodeJS.Timeout | null = null;
   private discoveryTimer: NodeJS.Timeout | null = null;
   private readonly startTime = Date.now();
+  private readonly settledEvents = new Set<string>();
+  private currentDayUtc = new Date().toISOString().slice(0, 10);
+  private killSwitchAlerted = false;
 
   constructor(private readonly config: Config) {
     initLogger(config);
@@ -61,16 +68,18 @@ export class Engine {
     this.detector = new ArbDetector(config);
     this.risk = new RiskManager(config);
     this.stakeSizer = new StakeSizer(config);
-    this.portfolio = new PortfolioTracker(config.simInitialBalance);
+    this.portfolio = new PortfolioTracker(config.simInitialBalance, config.feeBps);
     this.tradeHistory = new TradeHistoryStore({
       mode: config.mode,
       dir: config.tradeHistoryDir,
     });
+    this.arbTradePnl = new ArbTradePnlTracker();
 
     if (config.mode === 'live') {
       this.liveExecutor = new LiveExecutor({
         createClient: () => createLiveClobClient(config),
       });
+      this.liveExecutor.setFeeBps(config.feeBps);
       this.executor = this.liveExecutor;
     } else {
       this.simExecutor = new SimExecutor(config, this.store);
@@ -176,6 +185,16 @@ export class Engine {
         allowUnknownPhase: this.config.allowUnknownPhase,
       });
 
+      // Last chance to settle events about to leave tracking: after this,
+      // their market metadata is gone and open positions would be orphaned.
+      const keptIds = new Set(kept.map((g) => g.eventId));
+      for (const old of this.graphs) {
+        if (keptIds.has(old.eventId) || this.settledEvents.has(old.eventId)) continue;
+        if (getEventPhase(old) === 'finished') {
+          this.settleEvent(old, true);
+        }
+      }
+
       if (kept.length === 0 && skipped.length > 0) {
         getLogger().warn(
           { skipped: skipped.length },
@@ -226,11 +245,22 @@ export class Engine {
   private async tick(): Promise<void> {
     if (!this.running) return;
 
+    this.rollDayIfNeeded();
     this.simExecutor?.processRestingOrders();
     this.risk.setOpenOrderCount(this.executor.getOpenOrders().length);
 
     for (const graph of this.graphs) {
       await this.orderManager.cancelAllAtGameStart(graph);
+    }
+
+    // Settle positions on games that finished since the last discovery
+    // refresh: realize $1/$0 payouts, release event exposure, close per-trade
+    // PnL records. Without this, sim balances only ever drain and locked-arb
+    // profit is never realized.
+    for (const graph of this.graphs) {
+      if (this.settledEvents.has(graph.eventId)) continue;
+      if (getEventPhase(graph) !== 'finished') continue;
+      this.settleEvent(graph, false);
     }
 
     // Defensive real-time check: a game can finish (or go live, in strict
@@ -278,6 +308,7 @@ export class Engine {
         if (ok) {
           this.risk.markExecuted(sized, graph);
           this.opportunityHistory.markStatus(sized.id, sized.status, sized);
+          this.arbTradePnl.registerPlacement(sized);
           this.tradeHistory.recordPlacement(sized, totalLegNotional(sized.legs));
           this.dashboard?.logOrder(
             `Placed ${sized.relation} $${totalLegNotional(sized.legs).toFixed(0)}: ${sized.description}`,
@@ -291,14 +322,76 @@ export class Engine {
     }
 
     if (this.risk.isKillSwitchActive()) {
-      this.addAlert('KILL SWITCH: daily loss limit hit');
+      if (!this.killSwitchAlerted) {
+        this.addAlert('KILL SWITCH: daily loss limit hit');
+        this.killSwitchAlerted = true;
+      }
+    } else {
+      this.killSwitchAlerted = false;
     }
 
     const status = this.buildStatus();
     this.dashboard?.render(status);
   }
 
-  private handleFill(fill: FillEvent): void {
+  /** UTC-midnight rollover: reset daily loss counter and kill switch. */
+  private rollDayIfNeeded(): void {
+    const day = new Date().toISOString().slice(0, 10);
+    if (day === this.currentDayUtc) return;
+    this.currentDayUtc = day;
+    this.risk.rollDailyCounters();
+    this.settledEvents.clear();
+    this.addAlert(`New UTC day ${day}: daily PnL and kill switch reset`);
+  }
+
+  private settleEvent(graph: EventGraph, force: boolean): void {
+    try {
+      const result = settleFinishedEvent(
+        graph,
+        { portfolio: this.portfolio, store: this.store, arbTradePnl: this.arbTradePnl },
+        { force },
+      );
+
+      if (result.settledMarkets === 0 && result.skippedMarkets === 0 && result.closedTrades.length === 0) {
+        // Nothing held on this event — just stop re-checking it.
+        this.settledEvents.add(graph.eventId);
+        return;
+      }
+
+      if (result.realizedPnlUsd !== 0) {
+        this.risk.recordRealizedPnl(result.realizedPnlUsd);
+      }
+      if (this.simExecutor && result.proceedsUsd > 0) {
+        // Sim balance is the source of truth; pay settlement proceeds into it
+        // so the next fill's balance sync doesn't erase them.
+        this.simExecutor.credit(result.proceedsUsd);
+        this.portfolio.setBalance(this.simExecutor.getBalance());
+      }
+      for (const snapshot of result.closedTrades) {
+        this.tradeHistory.recordTradePnl(snapshot);
+      }
+
+      if (result.skippedMarkets === 0) {
+        this.settledEvents.add(graph.eventId);
+        const exposure = this.risk.getEventExposure(graph.eventId);
+        if (exposure > 0) this.risk.releaseEventExposure(graph.eventId, exposure);
+      }
+
+      if (result.settledMarkets > 0) {
+        this.addAlert(
+          `Settled ${graph.title}: ${result.settledMarkets} markets, ` +
+            `PnL ${result.realizedPnlUsd >= 0 ? '+' : ''}$${result.realizedPnlUsd.toFixed(2)}`,
+        );
+      }
+    } catch (error) {
+      getLogger().error({ error, event: graph.slug }, 'Event settlement failed');
+    }
+  }
+
+  private handleFill(rawFill: FillEvent): void {
+    const order = this.executor.getOrder(rawFill.orderId);
+    const fill = enrichFill(rawFill, this.config.feeBps, order?.opportunityId);
+
     const realizedBefore = this.portfolio.getRealizedPnl();
     this.portfolio.applyFill(fill);
     const realizedDelta = this.portfolio.getRealizedPnl() - realizedBefore;
@@ -309,7 +402,13 @@ export class Engine {
       this.portfolio.setBalance(this.executor.getBalance());
     }
     this.risk.onFill(fill);
-    this.tradeHistory.recordFill(fill);
+    this.tradeHistory.recordFill(fill, fill.opportunityId);
+
+    const tradePnl = this.arbTradePnl.onFill(fill, this.store);
+    if (tradePnl) {
+      this.tradeHistory.recordTradePnl(tradePnl);
+    }
+
     this.recentFills.unshift(fill);
     if (this.recentFills.length > 50) this.recentFills.pop();
     this.dashboard?.logFill(fill);

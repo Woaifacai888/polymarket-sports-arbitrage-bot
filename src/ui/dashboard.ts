@@ -10,6 +10,16 @@ export interface DashboardOptions {
   onQuit?: () => void;
 }
 
+/** A scrollable/focusable panel: `el` owns the border+label, `focusEl` is what actually receives key/focus events. */
+interface FocusablePanel {
+  el: any;
+  focusEl: any;
+  name: string;
+}
+
+const FOCUS_BORDER_FG = 'yellow';
+const DEFAULT_BORDER_FG = 'cyan';
+
 /** Relative column widths (fractions summing to ~1) for Tracked Markets. */
 const MARKET_COLUMN_RATIOS = [0.05, 0.15, 0.08, 0.35, 0.07, 0.07, 0.07, 0.16];
 const MARKET_COLUMN_SPACING = 3;
@@ -30,6 +40,8 @@ export class Dashboard {
   private readonly exposureGauge: any;
   private readonly orderLog: any;
   private readonly alertLog: any;
+  private readonly panels: FocusablePanel[] = [];
+  private focusIndex = 0;
 
   constructor(private readonly options: DashboardOptions = {}) {
     this.screen = blessed.screen({
@@ -49,6 +61,8 @@ export class Dashboard {
     // Sport/Event/Type/Question/Status are readable without heavy truncation.
     this.marketsTable = this.grid.set(1, 0, 5, 8, contrib.table, {
       keys: true,
+      vi: true,
+      mouse: true,
       fg: 'white',
       selectedFg: 'white',
       selectedBg: 'blue',
@@ -60,6 +74,8 @@ export class Dashboard {
 
     this.oppsTable = this.grid.set(1, 8, 5, 4, contrib.table, {
       keys: true,
+      vi: true,
+      mouse: true,
       fg: 'white',
       selectedFg: 'white',
       selectedBg: 'green',
@@ -86,23 +102,78 @@ export class Dashboard {
       fg: 'green',
       selectedFg: 'green',
       label: ' Orders / Fills / History ',
+      keys: true,
+      vi: true,
+      mouse: true,
     });
 
     this.alertLog = this.grid.set(8, 6, 3, 6, contrib.log, {
       fg: 'yellow',
       selectedFg: 'yellow',
       label: ' Alerts ',
+      keys: true,
+      vi: true,
+      mouse: true,
     });
 
     this.grid.set(11, 0, 1, 12, blessed.box, {
       tags: true,
       content:
         ' {bold}[p]{/bold} pause  {bold}[f]{/bold} flatten  {bold}[q]{/bold} quit  |  ' +
+        '{bold}[1-4/Tab]{/bold} focus panel  {bold}[↑/↓/wheel/PgUp/PgDn]{/bold} scroll  |  ' +
         'Depth + tick-rounded limits  |  Multi-leg rollback on fail ',
       style: { fg: 'cyan' },
     });
 
+    this.registerPanel(this.marketsTable, this.marketsTable.rows, 'Tracked Markets');
+    this.registerPanel(this.oppsTable, this.oppsTable.rows, 'Opportunities');
+    this.registerPanel(this.orderLog, this.orderLog, 'Orders / Fills / History');
+    this.registerPanel(this.alertLog, this.alertLog, 'Alerts');
+
     this.bindKeys();
+    this.focusPanel(0);
+  }
+
+  /**
+   * Registers a panel as focusable/scrollable. `el` owns the border and label
+   * (used for the focus-highlight color); `focusEl` is the element that
+   * actually receives keypress/mouse-wheel events (for tables this is the
+   * internal `.rows` list, since blessed only routes keys to `screen.focused`).
+   *
+   * IMPORTANT: these handlers must NOT call `screen.render()`. blessed-contrib's
+   * `Table.render()` unconditionally re-invokes `.rows.focus()` on every render
+   * pass whenever that row list is already focused, which re-emits 'focus'/
+   * 'blur' even though nothing changed. If the handler triggered another
+   * `screen.render()`, that would recurse infinitely (Table.render() ->
+   * focus() -> 'focus' event -> screen.render() -> Table.render() -> ...)
+   * and blow the call stack. Style mutations here are picked up on whatever
+   * render pass is already in flight or the next one.
+   */
+  private registerPanel(el: any, focusEl: any, name: string): void {
+    this.panels.push({ el, focusEl, name });
+    focusEl.on('focus', () => {
+      el.style.border.fg = FOCUS_BORDER_FG;
+    });
+    focusEl.on('blur', () => {
+      el.style.border.fg = DEFAULT_BORDER_FG;
+    });
+  }
+
+  private focusPanel(index: number): void {
+    if (!this.panels.length) return;
+    this.focusIndex = ((index % this.panels.length) + this.panels.length) % this.panels.length;
+    this.panels[this.focusIndex].focusEl.focus();
+    this.screen.render();
+  }
+
+  /** Scrolls the currently focused panel by a full page (PgUp/PgDn). */
+  private scrollFocusedPanel(direction: 1 | -1): void {
+    const panel = this.panels[this.focusIndex];
+    if (!panel) return;
+    const el = panel.focusEl;
+    const page = Math.max(1, (el.height ?? 10) - (el.iheight ?? 2));
+    el.move(direction * page);
+    this.screen.render();
   }
 
   private bindKeys(): void {
@@ -120,6 +191,15 @@ export class Dashboard {
       this.options.onQuit?.();
       this.destroy();
     });
+
+    this.screen.key(['tab'], () => this.focusPanel(this.focusIndex + 1));
+    this.screen.key(['S-tab'], () => this.focusPanel(this.focusIndex - 1));
+    this.panels.forEach((_, i) => {
+      this.screen.key([String(i + 1)], () => this.focusPanel(i));
+    });
+
+    this.screen.key(['pageup'], () => this.scrollFocusedPanel(-1));
+    this.screen.key(['pagedown'], () => this.scrollFocusedPanel(1));
   }
 
   render(status: EngineStatus): void {
@@ -135,22 +215,42 @@ export class Dashboard {
   }
 
   logOrder(message: string): void {
-    this.orderLog.log(message);
-    this.screen.render();
+    this.appendLog(this.orderLog, message);
   }
 
   logAlert(message: string): void {
-    this.alertLog.log(message);
-    this.screen.render();
+    this.appendLog(this.alertLog, message);
   }
 
   logFill(fill: FillEvent): void {
     const outcome = fill.outcome ? ` ${fill.outcome}` : '';
-    this.orderLog.log(
+    this.appendLog(
+      this.orderLog,
       `${fill.mode.toUpperCase()} ${fill.side}${outcome} ${fill.size}@${fill.price.toFixed(3)} ` +
         `mkt=${fill.marketId.slice(0, 8)}`,
     );
+  }
+
+  /**
+   * Appends a line to a contrib.log widget without yanking the user's scroll
+   * position: if they've scrolled up to review history, new lines still
+   * accumulate in the buffer but the viewport stays put. Auto-follows
+   * (tail -f style) only while already at the bottom.
+   */
+  private appendLog(el: any, message: string): void {
+    const wasAtBottom = this.isScrolledToBottom(el);
+    const prevScroll = el.getScroll();
+    el.log(message);
+    if (!wasAtBottom) {
+      el.scrollTo(prevScroll);
+    }
     this.screen.render();
+  }
+
+  private isScrolledToBottom(el: any): boolean {
+    const innerHeight = (el.height ?? 0) - (el.iheight ?? 0);
+    if (el.getScrollHeight() <= innerHeight) return true;
+    return el.getScrollPerc() >= 99;
   }
 
   destroy(): void {

@@ -96,6 +96,22 @@ export function classifyMarkets(
   return markets.map((m) => classifyMarket(m, gammaById.get(m.id)));
 }
 
+/**
+ * Groups markets that differ only by their numeric line.
+ *
+ * Ladder relations (totals/spreads) are only valid between markets measuring
+ * the SAME underlying quantity (e.g. "over 2.5 goals" vs "over 3.5 goals").
+ * Markets like "England over 3.5 corners" vs "Argentina over 3.5 corners"
+ * share a line but different subjects — comparing them is not an arbitrage.
+ */
+export function marketSubjectKey(question: string): string {
+  return question
+    .toLowerCase()
+    .replace(/[+-]?\d+(?:\.\d+)?/g, '#')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function groupByType(markets: ClassifiedMarket[]): Record<MarketType, ClassifiedMarket[]> {
   const groups: Record<MarketType, ClassifiedMarket[]> = {
     moneyline: [],

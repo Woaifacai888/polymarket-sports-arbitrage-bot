@@ -7,7 +7,7 @@ import {
 } from '../util/stakeMath.js';
 
 /** Relations where minimum payout is locked at $1 per share set */
-const LOCKED_ARB_RELATIONS: RelationType[] = [
+export const LOCKED_ARB_RELATIONS: RelationType[] = [
   'complementary_pair',
   'three_way_sum',
   'totals_ladder',

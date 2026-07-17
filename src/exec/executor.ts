@@ -13,6 +13,7 @@ export interface ExecutionEngine {
   cancelOrder(orderId: string): Promise<void>;
   cancelAll(): Promise<void>;
   getOpenOrders(): OrderRecord[];
+  getOrder(orderId: string): OrderRecord | undefined;
   onFill(callback: (fill: FillEvent) => void): void;
   getBalance(): number;
 }

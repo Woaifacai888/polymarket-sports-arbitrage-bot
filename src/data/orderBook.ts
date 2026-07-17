@@ -90,6 +90,31 @@ export class OrderBookStore {
     return book.asks.slice(0, maxLevels).reduce((acc, l) => add(acc, l.size), 0);
   }
 
+  /**
+   * Remove `size` shares from the ask side, best-price first.
+   * Used by the sim executor so fills deplete liquidity like a real exchange —
+   * otherwise the same phantom arb re-fires every scan forever.
+   */
+  consumeAsks(tokenId: string, size: number): void {
+    const book = this.books.get(tokenId);
+    if (!book || size <= 0) return;
+
+    let remaining = size;
+    const asks: BookLevel[] = [];
+    for (const level of book.asks) {
+      if (remaining <= 0) {
+        asks.push(level);
+        continue;
+      }
+      const take = Math.min(level.size, remaining);
+      remaining -= take;
+      const left = level.size - take;
+      if (left > 0) asks.push({ price: level.price, size: left });
+    }
+    book.asks = asks;
+    book.updatedAt = Date.now();
+  }
+
   costToBuy(tokenId: string, size: number): { avgPrice: number; totalCost: number } | null {
     const book = this.books.get(tokenId);
     if (!book || book.asks.length === 0) return null;

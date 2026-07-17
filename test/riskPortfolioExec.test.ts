@@ -260,6 +260,7 @@ describe('OrderManager placement quality', () => {
       },
       async cancelAll(): Promise<void> {},
       getOpenOrders: () => [],
+      getOrder: () => undefined,
       onFill: () => {},
       getBalance: () => 10_000,
     };
@@ -280,6 +281,7 @@ describe('OrderManager placement quality', () => {
       async cancelOrder(): Promise<void> {},
       async cancelAll(): Promise<void> {},
       getOpenOrders: () => [],
+      getOrder: () => undefined,
       onFill: () => {},
       getBalance: () => 10_000,
     };

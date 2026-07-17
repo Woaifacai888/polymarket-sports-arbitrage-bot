@@ -1,5 +1,6 @@
 import type { FillEvent, PortfolioSnapshot, Position } from '../config/types.js';
 import type { OrderBookStore } from '../data/orderBook.js';
+import { computeFillCosts } from './fillCosts.js';
 import { add, mul, sub } from '../util/math.js';
 
 export interface PortfolioAttribution {
@@ -17,7 +18,10 @@ export class PortfolioTracker {
   private lastRealizedDelta = 0;
   private readonly realizedByMarket = new Map<string, number>();
 
-  constructor(initialBalance: number) {
+  constructor(
+    initialBalance: number,
+    private readonly feeBps = 0,
+  ) {
     this.balance = initialBalance;
     this.pnlHistory.push({ t: Date.now(), pnl: 0 });
   }
@@ -41,10 +45,18 @@ export class PortfolioTracker {
     return d;
   }
 
+  positionsForMarket(marketId: string): Position[] {
+    return [...this.positions.values()].filter((p) => p.marketId === marketId);
+  }
+
   applyFill(fill: FillEvent): void {
     const key = fill.tokenId;
     const existing = this.positions.get(key);
-    const cost = mul(fill.price, fill.size);
+    const costs =
+      fill.allInCostUsd != null && fill.feeUsd != null
+        ? { grossUsd: mul(fill.price, fill.size), feeUsd: fill.feeUsd, allInUsd: fill.allInCostUsd }
+        : computeFillCosts(fill.price, fill.size, fill.side, this.feeBps);
+    const cost = costs.allInUsd;
     const outcome = fill.outcome ?? existing?.outcome ?? 'YES';
 
     if (fill.side === 'BUY') {
@@ -62,7 +74,7 @@ export class PortfolioTracker {
           marketId: fill.marketId,
           outcome,
           size: fill.size,
-          avgPrice: fill.price,
+          avgPrice: cost / fill.size,
           costBasis: cost,
         });
       }
@@ -70,7 +82,7 @@ export class PortfolioTracker {
       this.balance = add(this.balance, cost);
       if (existing) {
         const sellSize = Math.min(fill.size, existing.size);
-        const pnl = sub(mul(sellSize, fill.price), mul(sellSize, existing.avgPrice));
+        const pnl = sub(cost, mul(sellSize, existing.avgPrice));
         this.realizedPnl = add(this.realizedPnl, pnl);
         this.lastRealizedDelta = add(this.lastRealizedDelta, pnl);
         this.realizedByMarket.set(

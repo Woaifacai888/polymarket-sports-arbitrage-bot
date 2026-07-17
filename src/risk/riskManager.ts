@@ -6,6 +6,7 @@ import { bpsToDecimal } from '../util/math.js';
 
 export class RiskManager {
   private readonly seenOpportunities = new Map<string, number>();
+  private readonly executedOpportunities = new Map<string, number>();
   private dailyRealizedPnl = 0;
   private killSwitch = false;
   private eventExposure = new Map<string, number>();
@@ -18,7 +19,20 @@ export class RiskManager {
     this.killSwitch = false;
     this.eventExposure.clear();
     this.seenOpportunities.clear();
+    this.executedOpportunities.clear();
     this.openOrderCount = 0;
+  }
+
+  /**
+   * Midnight rollover for a 24/7 process: reset the daily loss counter and
+   * kill switch, drop stale cooldown entries, but KEEP event exposure —
+   * positions opened yesterday are still at risk today.
+   */
+  rollDailyCounters(): void {
+    this.dailyRealizedPnl = 0;
+    this.killSwitch = false;
+    this.seenOpportunities.clear();
+    this.executedOpportunities.clear();
   }
 
   recordRealizedPnl(delta: number): void {
@@ -78,6 +92,13 @@ export class RiskManager {
       return { approved: false, reason: 'Duplicate opportunity cooldown' };
     }
 
+    // A just-executed package re-firing usually means our own fills haven't
+    // propagated (or a phantom edge). Block re-entry for a longer window.
+    const lastExecuted = this.executedOpportunities.get(opportunity.id);
+    if (lastExecuted && Date.now() - lastExecuted < this.config.executedCooldownMs) {
+      return { approved: false, reason: 'Recently executed (executed cooldown)' };
+    }
+
     if (this.openOrderCount >= this.config.maxOpenOrders) {
       return { approved: false, reason: 'Max open orders reached' };
     }
@@ -117,6 +138,7 @@ export class RiskManager {
 
   markExecuted(opportunity: Opportunity, graph: EventGraph): void {
     this.seenOpportunities.set(opportunity.id, Date.now());
+    this.executedOpportunities.set(opportunity.id, Date.now());
     const notional = opportunity.legs.reduce((acc, leg) => acc + legNotional(leg), 0);
     this.eventExposure.set(graph.eventId, (this.eventExposure.get(graph.eventId) ?? 0) + notional);
   }

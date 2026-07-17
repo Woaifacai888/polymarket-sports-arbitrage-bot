@@ -60,7 +60,8 @@ export class GammaClient {
       closed: false,
       limit,
       offset,
-      order: 'volume_24hr',
+      // Gamma expects the camelCase field name; 'volume_24hr' returns 422.
+      order: 'volume24hr',
       ascending: false,
     });
   }
@@ -72,7 +73,8 @@ export class GammaClient {
       closed: false,
       limit,
       offset,
-      order: 'volume_24hr',
+      // Gamma expects the camelCase field name; 'volume_24hr' returns 422.
+      order: 'volume24hr',
       ascending: false,
     });
   }

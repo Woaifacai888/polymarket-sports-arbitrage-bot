@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { FillEvent, Opportunity } from '../config/types.js';
+import type { TradePnlSnapshot } from './arbTradePnl.js';
 
-export type TradeHistoryKind = 'placement' | 'fill' | 'reject';
+export type TradeHistoryKind = 'placement' | 'fill' | 'reject' | 'trade_pnl';
 
 export interface TradeHistoryRecord {
   id: string;
@@ -20,6 +21,8 @@ export interface TradeHistoryRecord {
   notionalUsd?: number;
   fill?: FillEvent;
   reason?: string;
+  /** Per-arbitrage-package PnL snapshot (fee-inclusive). */
+  tradePnl?: TradePnlSnapshot;
 }
 
 export interface TradeHistoryOptions {
@@ -28,6 +31,8 @@ export interface TradeHistoryOptions {
   dir?: string;
   /** Max in-memory records for UI (default: 200) */
   memoryLimit?: number;
+  /** Time source, injectable for tests (default: Date.now) */
+  clock?: () => number;
 }
 
 /**
@@ -35,22 +40,44 @@ export interface TradeHistoryOptions {
  * Persists to `data/trades/{mode}-YYYY-MM-DD.jsonl` and keeps a memory ring for the UI.
  */
 export class TradeHistoryStore {
-  private readonly filePath: string;
+  private readonly dir: string;
+  private readonly clock: () => number;
+  private filePath: string;
+  private currentDay: string;
   private readonly memoryLimit: number;
   private readonly records: TradeHistoryRecord[] = [];
   private seq = 0;
 
   constructor(private readonly options: TradeHistoryOptions) {
-    const dir = options.dir ?? path.join(process.cwd(), 'data', 'trades');
-    fs.mkdirSync(dir, { recursive: true });
-    const day = new Date().toISOString().slice(0, 10);
-    this.filePath = path.join(dir, `${options.mode}-${day}.jsonl`);
+    this.dir = options.dir ?? path.join(process.cwd(), 'data', 'trades');
+    this.clock = options.clock ?? Date.now;
+    fs.mkdirSync(this.dir, { recursive: true });
+    this.currentDay = this.today();
+    this.filePath = this.pathForDay(this.currentDay);
     this.memoryLimit = options.memoryLimit ?? 200;
     this.loadTail();
   }
 
   getFilePath(): string {
+    this.rollFileIfNeeded();
     return this.filePath;
+  }
+
+  private today(): string {
+    return new Date(this.clock()).toISOString().slice(0, 10);
+  }
+
+  private pathForDay(day: string): string {
+    return path.join(this.dir, `${this.options.mode}-${day}.jsonl`);
+  }
+
+  /** 24/7 processes must not keep appending to yesterday's file after midnight UTC. */
+  private rollFileIfNeeded(): void {
+    const day = this.today();
+    if (day !== this.currentDay) {
+      this.currentDay = day;
+      this.filePath = this.pathForDay(day);
+    }
   }
 
   getRecent(limit = 50): TradeHistoryRecord[] {
@@ -88,22 +115,41 @@ export class TradeHistoryStore {
   }
 
   recordFill(fill: FillEvent, opportunityId?: string): TradeHistoryRecord {
+    const notional = fill.allInCostUsd ?? fill.price * fill.size;
     return this.append({
       kind: 'fill',
-      opportunityId,
+      opportunityId: opportunityId ?? fill.opportunityId,
       fill,
-      notionalUsd: fill.price * fill.size,
+      notionalUsd: notional,
       status: 'filled',
+    });
+  }
+
+  recordTradePnl(snapshot: TradePnlSnapshot): TradeHistoryRecord {
+    return this.append({
+      kind: 'trade_pnl',
+      opportunityId: snapshot.opportunityId,
+      relation: snapshot.relation,
+      eventId: snapshot.eventId,
+      eventTitle: snapshot.eventTitle,
+      description: snapshot.description,
+      netEdge: snapshot.netEdge,
+      grossEdge: snapshot.grossEdge,
+      notionalUsd: snapshot.allInEntryUsd,
+      status: snapshot.status === 'closed' ? 'filled' : snapshot.status === 'open' ? 'filled' : 'partial',
+      tradePnl: snapshot,
     });
   }
 
   private append(
     partial: Omit<TradeHistoryRecord, 'id' | 'ts' | 'mode'>,
   ): TradeHistoryRecord {
+    this.rollFileIfNeeded();
     this.seq += 1;
+    const now = this.clock();
     const record: TradeHistoryRecord = {
-      id: `${this.options.mode}-${Date.now()}-${this.seq}`,
-      ts: Date.now(),
+      id: `${this.options.mode}-${now}-${this.seq}`,
+      ts: now,
       mode: this.options.mode,
       ...partial,
     };

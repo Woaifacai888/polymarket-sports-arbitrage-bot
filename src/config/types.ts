@@ -41,6 +41,8 @@ export const ConfigSchema = z.object({
   maxBookAgeMs: z.number().positive().default(15_000),
   orderPlaceRetries: z.number().int().nonnegative().default(2),
   opportunityCooldownMs: z.number().positive().default(5_000),
+  /** After executing an opportunity, block re-entry for this long. */
+  executedCooldownMs: z.number().positive().default(120_000),
   tradeHistoryDir: z.string().default('data/trades'),
   /** When true, only pre-game (upcoming) matches are tradable; live is also excluded. */
   trackUpcomingOnly: z.boolean().default(false),
@@ -127,6 +129,9 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     opportunityCooldownMs: process.env.OPPORTUNITY_COOLDOWN_MS
       ? Number(process.env.OPPORTUNITY_COOLDOWN_MS)
       : overrides.opportunityCooldownMs,
+    executedCooldownMs: process.env.EXECUTED_COOLDOWN_MS
+      ? Number(process.env.EXECUTED_COOLDOWN_MS)
+      : overrides.executedCooldownMs,
     tradeHistoryDir: process.env.TRADE_HISTORY_DIR ?? overrides.tradeHistoryDir,
     trackUpcomingOnly:
       overrides.trackUpcomingOnly ??
@@ -260,6 +265,11 @@ export interface FillEvent {
   timestamp: number;
   mode: 'sim' | 'live';
   outcome?: 'YES' | 'NO';
+  opportunityId?: string;
+  /** Trading fee charged on this fill (USD). */
+  feeUsd?: number;
+  /** Gross notional plus fees on BUY, or net proceeds after fees on SELL. */
+  allInCostUsd?: number;
 }
 
 export interface OrderRecord {
