@@ -53,18 +53,26 @@ function buyFill(
 }
 
 describe('fillCosts', () => {
-  it('adds fee to BUY all-in cost', () => {
+  it('adds fee to BUY all-in cost using the p(1-p) fee curve', () => {
+    // fee = 100 shares x 0.02 x 0.5 x (1 - 0.5) = 0.5
     const costs = computeFillCosts(0.5, 100, 'BUY', 200);
     assert.equal(costs.grossUsd, 50);
-    assert.equal(costs.feeUsd, 1);
-    assert.equal(costs.allInUsd, 51);
+    assert.equal(costs.feeUsd, 0.5);
+    assert.equal(costs.allInUsd, 50.5);
   });
 
-  it('subtracts fee from SELL proceeds', () => {
+  it('subtracts fee from SELL proceeds using the p(1-p) fee curve', () => {
+    // fee = 50 shares x 0.02 x 0.6 x (1 - 0.6) = 0.24
     const costs = computeFillCosts(0.6, 50, 'SELL', 200);
     assert.equal(costs.grossUsd, 30);
-    assert.equal(costs.feeUsd, 0.6);
-    assert.equal(costs.allInUsd, 29.4);
+    assert.equal(costs.feeUsd, 0.24);
+    assert.equal(costs.allInUsd, 29.76);
+  });
+
+  it('charges more fee at mid prices than near-certain prices (same notional)', () => {
+    const mid = computeFillCosts(0.5, 100, 'BUY', 500);
+    const extreme = computeFillCosts(0.95, 100, 'BUY', 500);
+    assert.ok(mid.feeUsd > extreme.feeUsd);
   });
 });
 
@@ -80,12 +88,13 @@ describe('computeTradePnl', () => {
     assert.equal(snapshot.status, 'open');
     assert.equal(snapshot.sharesPerLeg, 100);
     assert.equal(snapshot.grossEntryUsd, 95);
-    assert.equal(snapshot.feeUsd, 1.9);
-    assert.equal(snapshot.allInEntryUsd, 96.9);
+    // p(1-p) fees: 100 x 0.02 x 0.45 x 0.55 + 100 x 0.02 x 0.5 x 0.5 = 0.995
+    assert.equal(snapshot.feeUsd, 0.995);
+    assert.equal(snapshot.allInEntryUsd, 95.995);
     assert.equal(snapshot.lockedPayoutUsd, 100);
-    assert.equal(snapshot.lockedProfitUsd, 3.1);
+    assert.equal(snapshot.lockedProfitUsd, 4.005);
     assert.equal(snapshot.expectedProfitUsd, 4);
-    assert.equal(snapshot.totalPnlUsd, 3.1);
+    assert.equal(snapshot.totalPnlUsd, 4.005);
   });
 
   it('marks partial packages without locked profit', () => {
@@ -119,9 +128,10 @@ describe('PortfolioTracker fee-inclusive PnL', () => {
     );
     portfolio.applyFill(fill);
     const snap = portfolio.snapshot(store);
-    assert.equal(snap.exposure, 45.9);
-    assert.ok(snap.unrealizedPnl < 1);
-    assert.ok(snap.unrealizedPnl > -2);
+    // all-in = 45 + 100 x 0.02 x 0.45 x 0.55 = 45.495
+    assert.equal(snap.exposure, 45.495);
+    // mark = mid(0.46, 0.47) = 0.465 → unrealized = 46.5 - 45.495 = 1.005
+    assert.equal(snap.unrealizedPnl, 1.005);
   });
 });
 
@@ -140,6 +150,6 @@ describe('TradeHistoryStore trade_pnl', () => {
     const lines = fs.readFileSync(store.getFilePath(), 'utf8').trim().split('\n');
     const record = JSON.parse(lines[0]) as { kind: string; tradePnl?: { lockedProfitUsd: number } };
     assert.equal(record.kind, 'trade_pnl');
-    assert.equal(record.tradePnl?.lockedProfitUsd, 3.1);
+    assert.equal(record.tradePnl?.lockedProfitUsd, 4.005);
   });
 });

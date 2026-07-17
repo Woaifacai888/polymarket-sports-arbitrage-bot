@@ -191,17 +191,17 @@ describe('event settlement at end of game', () => {
     assert.equal(result.skippedMarkets, 0);
     assert.equal(result.settledMarkets, 1);
     assert.equal(result.winnerByMarket.get('m1'), 'YES');
-    // 100 shares pay $100; all-in entry was $96.90 → +$3.10 realized.
-    assert.equal(result.realizedPnlUsd, 3.1);
+    // 100 shares pay $100; all-in entry was $95.995 (p(1-p) fees) → +$4.005 realized.
+    assert.equal(result.realizedPnlUsd, 4.005);
     assert.equal(result.proceedsUsd, 100);
-    assert.equal(portfolio.getRealizedPnl(), 3.1);
+    assert.equal(portfolio.getRealizedPnl(), 4.005);
     assert.equal(portfolio.snapshot(store).positions.length, 0);
 
     assert.equal(result.closedTrades.length, 1);
     const closed = result.closedTrades[0];
     assert.equal(closed.status, 'closed');
-    assert.equal(closed.realizedPnlUsd, 3.1);
-    assert.equal(closed.totalPnlUsd, 3.1);
+    assert.equal(closed.realizedPnlUsd, 4.005);
+    assert.equal(closed.totalPnlUsd, 4.005);
   });
 
   it('settles a matched pair even when the final book is gone (payout invariant)', () => {
@@ -211,7 +211,7 @@ describe('event settlement at end of game', () => {
     const result = settleFinishedEvent(graph(), { portfolio, store, arbTradePnl: tracker });
 
     assert.equal(result.skippedMarkets, 0);
-    assert.equal(result.realizedPnlUsd, 3.1);
+    assert.equal(result.realizedPnlUsd, 4.005);
     assert.equal(portfolio.snapshot(store).positions.length, 0);
   });
 

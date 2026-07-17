@@ -32,8 +32,16 @@ export function bpsToDecimal(bps: number): number {
   return bps / 10_000;
 }
 
-export function applyFee(price: number, feeBps: number): number {
-  return mul(price, 1 + bpsToDecimal(feeBps));
+/**
+ * Polymarket taker fee in USDC: fee = shares × feeRate × p × (1 − p).
+ * Takers only — makers are never charged. `feeRateBps` is the category fee
+ * rate in basis points (sports = 500 → rate 0.05, per sports_fees_v2).
+ * The fee peaks at p = 0.50 and falls toward zero at the extremes, so a flat
+ * percent-of-notional approximation badly underestimates fees exactly where
+ * complementary-pair arbs occur (mid-range prices).
+ */
+export function takerFeeUsd(price: number, size: number, feeRateBps: number): number {
+  return mul(mul(size, bpsToDecimal(feeRateBps)), mul(price, 1 - price));
 }
 
 export function applySlippage(price: number, slippageBps: number, side: 'BUY' | 'SELL'): number {

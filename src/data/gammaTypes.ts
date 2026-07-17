@@ -16,6 +16,16 @@ export interface GammaMarket {
   neg_risk?: boolean | null;
   outcomes?: string | string[];
   outcomePrices?: string | string[];
+  /** e.g. 'sports_fees_v2' when the market charges taker fees. */
+  feeType?: string | null;
+  feesEnabled?: boolean | null;
+  feeSchedule?: {
+    exponent?: number | null;
+    /** Taker fee rate as a decimal, e.g. 0.05 for sports. */
+    rate?: number | string | null;
+    takerOnly?: boolean | null;
+    rebateRate?: number | null;
+  } | null;
 }
 
 export interface GammaEvent {
@@ -62,6 +72,21 @@ export function isTradableMarket(market: GammaMarket): boolean {
   return market.enableOrderBook === true && !!parseClobTokenIds(market.clobTokenIds);
 }
 
+/**
+ * Per-market taker fee rate in bps from Gamma fee metadata (e.g. 500 for
+ * sports_fees_v2's rate 0.05). Returns 0 when fees are explicitly disabled,
+ * and undefined when the market carries no fee metadata (caller falls back
+ * to the configured default).
+ */
+export function parseTakerFeeRateBps(market: GammaMarket): number | undefined {
+  if (market.feesEnabled === false) return 0;
+  const rate = market.feeSchedule?.rate;
+  if (rate == null) return undefined;
+  const n = typeof rate === 'number' ? rate : Number(rate);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return Math.round(n * 10_000);
+}
+
 export function gammaMarketToBase(market: GammaMarket, event: GammaEvent): ClassifiedMarket | null {
   const tokens = parseClobTokenIds(market.clobTokenIds);
   if (!tokens || !isTradableMarket(market)) return null;
@@ -80,5 +105,6 @@ export function gammaMarketToBase(market: GammaMarket, event: GammaEvent): Class
     enableOrderBook: true,
     minimumTickSize: toNumber(market.minimum_tick_size),
     negRisk: market.neg_risk === true,
+    takerFeeRateBps: parseTakerFeeRateBps(market),
   };
 }

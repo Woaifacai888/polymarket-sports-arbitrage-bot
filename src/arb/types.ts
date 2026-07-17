@@ -3,6 +3,11 @@ import type { Leg, Opportunity, RelationType } from '../config/types.js';
 export interface RelationContext {
   eventId: string;
   eventTitle: string;
+  /**
+   * Fallback taker fee RATE in bps for Polymarket's fee curve
+   * fee = rate × p × (1 − p) per share. Used only when a market has no
+   * takerFeeRateBps from Gamma metadata. Sports = 500 (rate 0.05).
+   */
   feeBps: number;
   slippageBps: number;
   minNetEdge: number;

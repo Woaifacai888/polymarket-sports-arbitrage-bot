@@ -21,7 +21,13 @@ export const ConfigSchema = z.object({
   maxEventExposureUsd: z.number().positive().default(200),
   minNetEdgeBps: z.number().nonnegative().default(50),
   dailyLossLimitUsd: z.number().positive().default(100),
-  feeBps: z.number().nonnegative().default(200),
+  /**
+   * Default taker fee RATE in bps for Polymarket's fee curve
+   * fee = shares × rate × p × (1 − p). Sports = 500 (rate 0.05).
+   * Used when a market's Gamma metadata carries no feeSchedule.
+   * NOTE: this is NOT a flat percent of notional.
+   */
+  feeBps: z.number().nonnegative().default(500),
   slippageBps: z.number().nonnegative().default(10),
   simInitialBalance: z.number().positive().default(10_000),
   logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
@@ -193,6 +199,12 @@ export interface ClassifiedMarket {
   enableOrderBook: boolean;
   minimumTickSize: number;
   negRisk: boolean;
+  /**
+   * Taker fee rate in bps from this market's Gamma fee metadata (500 =
+   * sports_fees_v2's 0.05 rate; 0 = explicitly fee-free). Undefined when the
+   * API returned no fee info — consumers fall back to config.feeBps.
+   */
+  takerFeeRateBps?: number;
 }
 
 export type MarketType =

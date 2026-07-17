@@ -1,7 +1,7 @@
 import type { ClassifiedMarket, Leg } from '../config/types.js';
 import type { OrderBookStore } from '../data/orderBook.js';
 import { marketSubjectKey } from '../model/marketClassifier.js';
-import { applySlippage, bpsToDecimal, clamp, sub, sum } from '../util/math.js';
+import { add, applySlippage, bpsToDecimal, clamp, sub, sum, takerFeeUsd } from '../util/math.js';
 import type { RelationContext, RelationViolation } from './types.js';
 
 const LINE_EPSILON = 1e-9;
@@ -40,11 +40,28 @@ function getAsk(store: OrderBookStore, market: ClassifiedMarket, outcome: 'YES' 
   return store.bestAsk(tokenId);
 }
 
-function netEdgeFromCost(totalCost: number, payout: number, ctx: RelationContext): number {
-  const feeMultiplier = 1 + bpsToDecimal(ctx.feeBps);
+interface PricedLeg {
+  market: ClassifiedMarket;
+  price: number;
+}
+
+/**
+ * Net edge per share-package after Polymarket taker fees and slippage.
+ *
+ * Fees use the real fee curve fee = rate × p × (1 − p) per leg (taker-only,
+ * per official fee policy: sports rate 0.05). The rate comes from each
+ * market's Gamma feeSchedule when present, else ctx.feeBps. This replaces the
+ * old flat percent-of-notional model, which underestimated fees ~5x at
+ * mid-range prices — e.g. YES 0.48 + NO 0.51 costs ~2.5c/pair in real fees,
+ * so a 1c gross edge is a guaranteed loss the flat model would have traded.
+ */
+function netEdgeForLegs(legs: PricedLeg[], payout: number, ctx: RelationContext): number {
   const slippageMultiplier = 1 + bpsToDecimal(ctx.slippageBps);
-  const adjustedCost = totalCost * feeMultiplier * slippageMultiplier;
-  return sub(payout, adjustedCost);
+  const cost = sum(legs.map((l) => l.price)) * slippageMultiplier;
+  const fees = sum(
+    legs.map((l) => takerFeeUsd(l.price, 1, l.market.takerFeeRateBps ?? ctx.feeBps)),
+  );
+  return sub(payout, add(cost, fees));
 }
 
 export function checkComplementaryPair(
@@ -58,7 +75,14 @@ export function checkComplementaryPair(
 
   const totalCost = yesAsk + noAsk;
   const grossEdge = sub(1, totalCost);
-  const netEdge = netEdgeFromCost(totalCost, 1, ctx);
+  const netEdge = netEdgeForLegs(
+    [
+      { market, price: yesAsk },
+      { market, price: noAsk },
+    ],
+    1,
+    ctx,
+  );
   if (netEdge < ctx.minNetEdge) return null;
 
   const size = clamp(ctx.maxLegSize, 1, 100);
@@ -105,11 +129,18 @@ export function checkTotalsLadder(
         if (higherNoAsk == null) continue;
 
         const size = clamp(ctx.maxLegSize, 1, 100);
-        // Edge from raw asks (fee+slippage applied once in netEdgeFromCost);
+        // Edge from raw asks (fee+slippage applied once in netEdgeForLegs);
         // limit prices carry the slippage buffer to improve fill odds.
         const rawCost = lowerAsk + higherNoAsk;
         const grossEdge = sub(1, rawCost);
-        const netEdge = netEdgeFromCost(rawCost, 1, ctx);
+        const netEdge = netEdgeForLegs(
+          [
+            { market: lower, price: lowerAsk },
+            { market: higher, price: higherNoAsk },
+          ],
+          1,
+          ctx,
+        );
         if (netEdge < ctx.minNetEdge) continue;
 
         const buyPrice = applySlippage(lowerAsk, ctx.slippageBps, 'BUY');
@@ -158,7 +189,14 @@ export function checkSpreadLadder(
         const size = clamp(ctx.maxLegSize, 1, 100);
         const rawCost = harderAsk + easierNoAsk;
         const grossEdge = sub(1, rawCost);
-        const netEdge = netEdgeFromCost(rawCost, 1, ctx);
+        const netEdge = netEdgeForLegs(
+          [
+            { market: harder, price: harderAsk },
+            { market: easier, price: easierNoAsk },
+          ],
+          1,
+          ctx,
+        );
         if (netEdge < ctx.minNetEdge) continue;
 
         const buyPrice = applySlippage(harderAsk, ctx.slippageBps, 'BUY');
@@ -212,7 +250,14 @@ export function checkMoneylineSpread(
   const hedgePrice = applySlippage(expensiveNoAsk, ctx.slippageBps, 'BUY');
   const totalCost = buyPrice + hedgePrice;
   const grossEdge = sub(1, totalCost);
-  const netEdge = netEdgeFromCost(totalCost, 1, ctx);
+  const netEdge = netEdgeForLegs(
+    [
+      { market: cheaper, price: buyPrice },
+      { market: expensive, price: hedgePrice },
+    ],
+    1,
+    ctx,
+  );
   if (netEdge < ctx.minNetEdge) return null;
 
   return {
@@ -236,25 +281,25 @@ export function checkThreeWaySum(
   const draw = markets.find((m) => m.type === 'draw');
   if (moneylines.length < 2 || !draw) return null;
 
-  const asks: number[] = [];
+  const pricedLegs: PricedLeg[] = [];
   const legs: Leg[] = [];
   const size = clamp(ctx.maxLegSize, 1, 100);
 
   for (const ml of moneylines.slice(0, 2)) {
     const ask = getAsk(store, ml, 'YES');
     if (ask == null) return null;
-    asks.push(ask);
+    pricedLegs.push({ market: ml, price: ask });
     legs.push(buyLeg(ml, 'YES', ask, size));
   }
 
   const drawAsk = getAsk(store, draw, 'YES');
   if (drawAsk == null) return null;
-  asks.push(drawAsk);
+  pricedLegs.push({ market: draw, price: drawAsk });
   legs.push(buyLeg(draw, 'YES', drawAsk, size));
 
-  const totalCost = sum(asks);
+  const totalCost = sum(pricedLegs.map((l) => l.price));
   const grossEdge = sub(1, totalCost);
-  const netEdge = netEdgeFromCost(totalCost, 1, ctx);
+  const netEdge = netEdgeForLegs(pricedLegs, 1, ctx);
   if (netEdge < ctx.minNetEdge) return null;
 
   return {
