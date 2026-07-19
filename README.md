@@ -85,8 +85,8 @@ Track fills, positions, PnL & append trade history
 ### Windows / macOS / Linux
 
 ```bash
-git clone https://github.com/donoaccestag/polymarket-sports-trading-bot.git
-cd polymarket-sports-trading-bot
+git clone https://github.com/Woaifacai888/polymarket-sports-arbitrage-bot.git
+cd polymarket-sports-arbitrage-bot
 
 cp .env.example .env
 
