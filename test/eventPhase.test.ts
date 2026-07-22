@@ -13,9 +13,9 @@ const HOUR = 60 * 60 * 1000;
 function graph(overrides: Partial<EventGraph> = {}): EventGraph {
   return {
     eventId: 'e1',
-    slug: 'brazil-vs-morocco',
-    title: 'Brazil vs. Morocco',
-    sportId: 'world_cup',
+    slug: 'cruz-azul-vs-club-puebla',
+    title: 'CF Cruz Azul vs. Club Puebla',
+    sportId: 'liga_mx',
     gameStartTime: null,
     markets: [],
     tokenIds: [],
@@ -43,11 +43,11 @@ describe('classifyEventPhase', () => {
     assert.equal(classifyEventPhase(start, 'nba'), 'finished');
   });
 
-  it('uses world_cup duration (3h) for finished detection', () => {
+  it('uses soccer duration (3h) for finished detection', () => {
     const stillLive = new Date(Date.now() - 2.5 * HOUR);
     const finished = new Date(Date.now() - 4 * HOUR);
-    assert.equal(classifyEventPhase(stillLive, 'world_cup'), 'live');
-    assert.equal(classifyEventPhase(finished, 'world_cup'), 'finished');
+    assert.equal(classifyEventPhase(stillLive, 'liga_mx'), 'live');
+    assert.equal(classifyEventPhase(finished, 'liga_mx'), 'finished');
   });
 
   it('falls back to a conservative duration for unclassified sports', () => {

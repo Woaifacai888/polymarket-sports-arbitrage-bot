@@ -1,4 +1,12 @@
-import type { Config, EngineStatus, EventGraph, FillEvent, MarketRow, Opportunity } from '../config/types.js';
+import type {
+  ClassifiedMarket,
+  Config,
+  EngineStatus,
+  EventGraph,
+  FillEvent,
+  MarketRow,
+  Opportunity,
+} from '../config/types.js';
 import { ArbDetector } from '../arb/detector.js';
 import { clampLegsToLiquidity } from '../arb/liquidity.js';
 import { ClobRestClient } from '../data/clobRest.js';
@@ -22,6 +30,7 @@ import { settleFinishedEvent } from '../portfolio/settlement.js';
 import { TradeHistoryStore } from '../portfolio/tradeHistory.js';
 import { RiskManager } from '../risk/riskManager.js';
 import { StakeSizer, totalLegNotional } from '../risk/stakeSizer.js';
+import { CtfMerger } from '../exec/ctfMerger.js';
 import type { ExecutionEngine } from '../exec/executor.js';
 import { LiveExecutor, createLiveClobClient } from '../exec/liveExecutor.js';
 import { OrderManager } from '../exec/orderManager.js';
@@ -44,6 +53,8 @@ export class Engine {
   private readonly orderManager: OrderManager;
   private simExecutor: SimExecutor | null = null;
   private liveExecutor: LiveExecutor | null = null;
+  private merger: CtfMerger | null = null;
+  private readonly pendingMerges = new Set<string>();
   private marketSocket: MarketSocket | null = null;
   private userSocket: UserSocket | null = null;
   private dashboard: Dashboard | null = null;
@@ -81,6 +92,9 @@ export class Engine {
       });
       this.liveExecutor.setFeeBps(config.feeBps);
       this.executor = this.liveExecutor;
+      if (config.autoMergePairs && config.privateKey) {
+        this.merger = new CtfMerger(config);
+      }
     } else {
       this.simExecutor = new SimExecutor(config, this.store);
       this.executor = this.simExecutor;
@@ -249,8 +263,13 @@ export class Engine {
     this.simExecutor?.processRestingOrders();
     this.risk.setOpenOrderCount(this.executor.getOpenOrders().length);
 
-    for (const graph of this.graphs) {
-      await this.orderManager.cancelAllAtGameStart(graph);
+    // In-play trading is where most cross-line desyncs happen (swisstony
+    // model), so resting orders survive kickoff by default. The legacy
+    // cancel-at-kickoff behavior stays available behind a config flag.
+    if (this.config.cancelAtGameStart) {
+      for (const graph of this.graphs) {
+        await this.orderManager.cancelAllAtGameStart(graph);
+      }
     }
 
     // Settle positions on games that finished since the last discovery
@@ -262,6 +281,11 @@ export class Engine {
       if (getEventPhase(graph) !== 'finished') continue;
       this.settleEvent(graph, false);
     }
+
+    // Recycle capital swisstony-style: matched YES+NO pairs are worth
+    // exactly $1 each right now — merge them back to cash instead of
+    // waiting days for settlement.
+    this.mergeCompletePairs();
 
     // Defensive real-time check: a game can finish (or go live, in strict
     // upcoming-only mode) between discovery refreshes (up to
@@ -332,6 +356,70 @@ export class Engine {
 
     const status = this.buildStatus();
     this.dashboard?.render(status);
+  }
+
+  /**
+   * Merge matched YES+NO pairs back into USDC (sim: book-keeping only;
+   * live: CTF mergePositions on-chain). Fee-free exit that frees capital
+   * within the same game instead of holding every package to settlement.
+   */
+  private mergeCompletePairs(): void {
+    if (!this.config.autoMergePairs) return;
+
+    for (const graph of this.graphs) {
+      for (const market of graph.markets) {
+        if (this.pendingMerges.has(market.id)) continue;
+
+        const positions = this.portfolio.positionsForMarket(market.id);
+        const yes = positions.find((p) => p.outcome === 'YES');
+        const no = positions.find((p) => p.outcome === 'NO');
+        if (!yes || !no) continue;
+
+        // Whole pairs only, so on-chain amounts and book-keeping stay identical.
+        const matched = Math.floor(Math.min(yes.size, no.size));
+        if (matched < this.config.mergeMinShares) continue;
+
+        if (this.config.mode === 'live') {
+          if (!this.merger) continue;
+          this.pendingMerges.add(market.id);
+          this.merger
+            .mergePositions(market.conditionId, market.negRisk, matched)
+            .then((ok) => {
+              if (ok) this.applyMergeAccounting(graph, market, matched);
+              else this.addAlert(`Merge tx failed on ${market.question}`);
+            })
+            .catch((error) => {
+              getLogger().error({ error, market: market.slug }, 'On-chain merge failed');
+              this.addAlert(`Merge failed on ${market.question}`);
+            })
+            .finally(() => this.pendingMerges.delete(market.id));
+        } else {
+          this.applyMergeAccounting(graph, market, matched);
+        }
+      }
+    }
+  }
+
+  private applyMergeAccounting(graph: EventGraph, market: ClassifiedMarket, matched: number): void {
+    const result = this.portfolio.mergePairs(
+      market.id,
+      market.tokens.yesTokenId,
+      market.tokens.noTokenId,
+      matched,
+    );
+    if (!result) return;
+
+    this.risk.recordRealizedPnl(result.realizedPnl);
+    this.risk.releaseEventExposure(graph.eventId, result.costBasisReleased);
+    if (this.simExecutor) {
+      this.simExecutor.credit(result.proceeds);
+      this.portfolio.setBalance(this.simExecutor.getBalance());
+    }
+
+    this.addAlert(
+      `Merged ${result.merged.toFixed(0)} YES/NO pairs → +$${result.proceeds.toFixed(2)} ` +
+        `(PnL ${result.realizedPnl >= 0 ? '+' : ''}$${result.realizedPnl.toFixed(2)}) on ${market.question}`,
+    );
   }
 
   /** UTC-midnight rollover: reset daily loss counter and kill switch. */

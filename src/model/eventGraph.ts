@@ -2,11 +2,11 @@ import type { ClassifiedMarket, EventGraph, SportId } from '../config/types.js';
 import { classifyMarkets } from './marketClassifier.js';
 import type { GammaEvent, GammaMarket } from '../data/gammaTypes.js';
 import { gammaMarketToBase } from '../data/gammaTypes.js';
-import { classifyEventSport } from './sportsRegistry.js';
+import { DEFAULT_SPORT_FOCUS, classifyEventSport } from './sportsRegistry.js';
 
 export function buildEventGraph(
   event: GammaEvent,
-  sportFocus: SportId[] = ['nba', 'world_cup'],
+  sportFocus: SportId[] = DEFAULT_SPORT_FOCUS,
 ): EventGraph | null {
   const markets = event.markets ?? [];
   const baseMarkets: ClassifiedMarket[] = [];
@@ -40,7 +40,7 @@ export function buildEventGraph(
   };
 }
 
-export function buildEventGraphs(events: GammaEvent[], sportFocus: SportId[] = ['nba', 'world_cup']): EventGraph[] {
+export function buildEventGraphs(events: GammaEvent[], sportFocus: SportId[] = DEFAULT_SPORT_FOCUS): EventGraph[] {
   return events
     .map((event) => buildEventGraph(event, sportFocus))
     .filter((g): g is EventGraph => g !== null);

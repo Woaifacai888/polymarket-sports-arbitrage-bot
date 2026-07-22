@@ -297,7 +297,7 @@ describe('RiskManager executed cooldown (repeat-trade regression)', () => {
       eventId: 'e1',
       slug: 'e',
       title: 'England vs Argentina',
-      sportId: 'world_cup',
+      sportId: 'mls',
       gameStartTime: null,
       markets: [],
       tokenIds: [],

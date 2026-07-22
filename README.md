@@ -19,7 +19,10 @@
 ## Features
 
 - ⚡ Real-time Polymarket CLOB streaming (market + user WS in live mode)
-- 🧠 Cross-line arbitrage detection on NBA & World Cup sports markets
+- 🧠 Cross-line arbitrage detection on NBA, WNBA, MLB, KBO, K League, Liga MX & MLS markets
+- ⚡ Atomic taker execution: all legs filled immediately at detection (no legging risk)
+- ♻️ Auto-merges matched YES+NO pairs back to USDC (capital recycled mid-game, not at settlement)
+- 🏟 Trades in-play by default — resting orders survive kickoff
 - 📈 Kelly / target-notional stake sizing (default **$100** per package)
 - 💰 Paper trading (sim) & live trading via `@polymarket/clob-client-v2`
 - 🛡 Risk engine: kill switch, exposure caps, liquidity & stale-book gates
@@ -40,7 +43,7 @@ Sports markets inside a single event should satisfy several no-arbitrage relatio
 Gamma API
       │
       ▼
-Discover connected markets (NBA + World Cup)
+Discover connected markets (NBA, WNBA, MLB, KBO, K League, Liga MX, MLS)
       │
       ▼
 Stream live CLOB order books (REST + WebSocket)
@@ -211,7 +214,10 @@ Copy `.env.example` to `.env`. Key variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MODE` | `sim` | `sim` or `live` |
-| `SPORT_FOCUS` | `nba,world_cup` | Sports to discover |
+| `SPORT_FOCUS` | all sports | Sports to discover (`nba,wnba,mlb,kbo,k_league,liga_mx,mls`) |
+| `CANCEL_AT_GAME_START` | `false` | Legacy: cancel resting orders at kickoff |
+| `AUTO_MERGE_PAIRS` | `true` | Merge matched YES+NO pairs to USDC immediately |
+| `MERGE_MIN_SHARES` | `10` | Min matched shares before merging (gas in live) |
 | `MIN_NET_EDGE_BPS` | `50` | Minimum net edge to trade |
 | `MIN_STAKE_USD` | `100` | Target package notional (USD) |
 | `MAX_POSITION_USD` | `500` | Max stake cap |

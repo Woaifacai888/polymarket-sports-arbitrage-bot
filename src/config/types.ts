@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
-import { DEFAULT_SPORT_FOCUS, parseSportFocus, type SportId } from '../model/sportsRegistry.js';
+import {
+  DEFAULT_SPORT_FOCUS,
+  SPORT_IDS,
+  parseSportFocus,
+  type SportId,
+} from '../model/sportsRegistry.js';
 
 dotenv.config();
 
@@ -16,7 +21,7 @@ export const ConfigSchema = z.object({
   chain: z.string().default('polygon'),
   tagIds: z.array(z.number()).default([]),
   eventSlugs: z.array(z.string()).default([]),
-  sportFocus: z.array(z.enum(['nba', 'world_cup'])).default([...DEFAULT_SPORT_FOCUS]),
+  sportFocus: z.array(z.enum(SPORT_IDS)).default([...DEFAULT_SPORT_FOCUS]),
   maxPositionUsd: z.number().positive().default(500),
   maxEventExposureUsd: z.number().positive().default(200),
   minNetEdgeBps: z.number().nonnegative().default(50),
@@ -56,6 +61,20 @@ export const ConfigSchema = z.object({
   maxLookaheadHours: z.number().positive().default(24 * 14),
   /** Keep events when gameStartTime can't be resolved (fail-open vs fail-closed). */
   allowUnknownPhase: z.boolean().default(true),
+  /**
+   * Legacy behavior: cancel all resting orders at kickoff. Default OFF —
+   * live in-game books are where most cross-line desyncs occur, so the bot
+   * now keeps quoting through the game.
+   */
+  cancelAtGameStart: z.boolean().default(false),
+  /**
+   * Merge complete YES+NO share pairs back into USDC as soon as they exist
+   * instead of holding to settlement. Fee-free, crosses no spread, and
+   * recycles capital within the same game (CTF mergePositions in live mode).
+   */
+  autoMergePairs: z.boolean().default(true),
+  /** Minimum matched YES/NO shares before a merge is worth doing (gas in live mode). */
+  mergeMinShares: z.number().positive().default(10),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -152,6 +171,19 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       (process.env.ALLOW_UNKNOWN_PHASE != null
         ? process.env.ALLOW_UNKNOWN_PHASE === 'true'
         : undefined),
+    cancelAtGameStart:
+      overrides.cancelAtGameStart ??
+      (process.env.CANCEL_AT_GAME_START != null
+        ? process.env.CANCEL_AT_GAME_START === 'true'
+        : undefined),
+    autoMergePairs:
+      overrides.autoMergePairs ??
+      (process.env.AUTO_MERGE_PAIRS != null
+        ? process.env.AUTO_MERGE_PAIRS === 'true'
+        : undefined),
+    mergeMinShares: process.env.MERGE_MIN_SHARES
+      ? Number(process.env.MERGE_MIN_SHARES)
+      : overrides.mergeMinShares,
     ...overrides,
   };
 

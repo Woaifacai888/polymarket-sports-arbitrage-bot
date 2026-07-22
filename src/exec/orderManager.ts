@@ -1,4 +1,4 @@
-import type { EventGraph, Opportunity, OrderRecord } from '../config/types.js';
+import type { EventGraph, Leg, Opportunity, OrderRecord } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { roundToTick, sleep } from '../util/math.js';
 import { withRetry } from '../util/rateLimiter.js';
@@ -26,6 +26,11 @@ export class OrderManager {
     this.rollbackOnFailure = options.rollbackOnFailure ?? true;
   }
 
+  /**
+   * Taker-only execution: every leg of the package is placed immediately at
+   * its detected (ask-side) price, so the arb is captured atomically as soon
+   * as it is discovered — no resting maker legs, no legging risk.
+   */
   async executeOpportunity(
     opportunity: Opportunity,
     metaByMarket: Map<string, { tickSize: number; negRisk: boolean }>,
@@ -44,26 +49,7 @@ export class OrderManager {
       }
 
       for (const leg of opportunity.legs) {
-        const meta = metaByMarket.get(leg.marketId)!;
-        const tickSize = meta.tickSize > 0 ? meta.tickSize : 0.01;
-        const roundedPrice = roundToTick(leg.price, tickSize);
-        // Stay on the buyable side of the tick for BUY limits
-        const price =
-          leg.side === 'BUY' && roundedPrice < leg.price - 1e-12
-            ? roundToTick(leg.price + tickSize / 2, tickSize)
-            : roundedPrice;
-
-        const order = await withRetry(
-          () =>
-            this.engine.placeOrder({
-              leg: { ...leg, price: Math.min(0.99, Math.max(0.01, price)) },
-              tickSize,
-              negRisk: meta.negRisk,
-              opportunityId: opportunity.id,
-            }),
-          this.placeRetries,
-          250,
-        );
+        const order = await this.placeTakerLeg(leg, metaByMarket, opportunity.id);
         placed.push(order);
       }
 
@@ -84,6 +70,33 @@ export class OrderManager {
     } finally {
       this.inFlight.delete(opportunity.id);
     }
+  }
+
+  private async placeTakerLeg(
+    leg: Leg,
+    metaByMarket: Map<string, { tickSize: number; negRisk: boolean }>,
+    opportunityId: string,
+  ): Promise<OrderRecord> {
+    const meta = metaByMarket.get(leg.marketId)!;
+    const tickSize = meta.tickSize > 0 ? meta.tickSize : 0.01;
+    const roundedPrice = roundToTick(leg.price, tickSize);
+    // Stay on the buyable side of the tick for BUY limits
+    const price =
+      leg.side === 'BUY' && roundedPrice < leg.price - 1e-12
+        ? roundToTick(leg.price + tickSize / 2, tickSize)
+        : roundedPrice;
+
+    return withRetry(
+      () =>
+        this.engine.placeOrder({
+          leg: { ...leg, price: Math.min(0.99, Math.max(0.01, price)) },
+          tickSize,
+          negRisk: meta.negRisk,
+          opportunityId,
+        }),
+      this.placeRetries,
+      250,
+    );
   }
 
   private async rollback(placed: OrderRecord[]): Promise<void> {

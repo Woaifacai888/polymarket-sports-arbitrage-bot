@@ -1,6 +1,16 @@
 import type { GammaEvent } from '../data/gammaTypes.js';
 
-export type SportId = 'nba' | 'world_cup';
+export const SPORT_IDS = [
+  'nba',
+  'wnba',
+  'mlb',
+  'kbo',
+  'k_league',
+  'liga_mx',
+  'mls',
+] as const;
+
+export type SportId = (typeof SPORT_IDS)[number];
 
 export interface SportProfile {
   id: SportId;
@@ -27,6 +37,30 @@ export interface SportProfile {
 
 const HOUR_MS = 60 * 60 * 1000;
 
+// Esports tournaments frequently reuse real-sport branding ("NBA 2K",
+// "eMLS", "FIFA" the video game...). These keywords must be excluded
+// *before* the title-keyword check runs (exclude wins over include).
+const ESPORTS_EXCLUDES = [
+  'esports',
+  'league of legends',
+  'lol:',
+  'dota',
+  'valorant',
+  'counter-strike',
+  'csgo',
+  'cs2',
+  'overwatch',
+  'call of duty',
+  'starcraft',
+  'rocket league',
+  'rainbow six',
+  'apex legends',
+  'mobile legends',
+  'free fire',
+  'pubg',
+  'fortnite',
+];
+
 export const SPORT_PROFILES: Record<SportId, SportProfile> = {
   nba: {
     id: 'nba',
@@ -39,58 +73,100 @@ export const SPORT_PROFILES: Record<SportId, SportProfile> = {
     seriesIds: ['10345'],
     titleKeywords: ['nba'],
     tagLabels: ['nba'],
-    excludeKeywords: ['wnba', 'ncaab', 'ncaa', 'fiba', 'bkarg', 'bkfiba', 'esports', 'nba 2k', '2k'],
+    excludeKeywords: [
+      'wnba',
+      'ncaab',
+      'ncaa',
+      'fiba',
+      'bkarg',
+      'bkfiba',
+      'nba 2k',
+      '2k',
+      'summer league',
+      ...ESPORTS_EXCLUDES,
+    ],
     // Regulation + broadcast breaks ~2.5h; allow for OT and delays.
     typicalDurationMs: 3.5 * HOUR_MS,
   },
-  world_cup: {
-    id: 'world_cup',
-    label: 'World Cup',
-    // NOTE: tag 100639 ("Games") is Polymarket's generic video-game/esports
-    // category, not a soccer tag - do not add it here (see excludeKeywords
-    // comment below for why that matters).
-    sportCodes: ['fifwc', 'fif'],
-    tagIds: [102232, 100350],
-    seriesIds: ['11433'],
-    titleKeywords: ['world cup', 'fifa world cup'],
-    tagLabels: ['world cup', 'fifa'],
-    // Esports tournaments are frequently branded "Esports World Cup", "LoL
-    // World Championship", etc. - a plain `title.includes('world cup')`
-    // check matches those too, so esports/game keywords must be excluded
-    // *before* the title-keyword check runs (exclude wins over include).
-    excludeKeywords: [
-      'club world cup',
-      'women',
-      'womens',
-      'cricket',
-      'table tennis',
-      'tt world cup',
-      'hockey world',
-      'esports',
-      'league of legends',
-      'lol:',
-      'dota',
-      'valorant',
-      'counter-strike',
-      'csgo',
-      'cs2',
-      'overwatch',
-      'call of duty',
-      'starcraft',
-      'rocket league',
-      'rainbow six',
-      'apex legends',
-      'mobile legends',
-      'free fire',
-      'pubg',
-      'fortnite',
-    ],
-    // 90 min + HT + stoppage ~2h; knockout rounds can add ET + penalties.
+  wnba: {
+    id: 'wnba',
+    label: 'WNBA',
+    sportCodes: ['wnba'],
+    tagIds: [100254],
+    seriesIds: [],
+    titleKeywords: ['wnba'],
+    tagLabels: ['wnba'],
+    excludeKeywords: ['ncaa', 'fiba', '2k', ...ESPORTS_EXCLUDES],
+    typicalDurationMs: 3 * HOUR_MS,
+  },
+  mlb: {
+    id: 'mlb',
+    label: 'MLB',
+    sportCodes: ['mlb'],
+    tagIds: [100381],
+    seriesIds: [],
+    titleKeywords: ['mlb'],
+    tagLabels: ['mlb'],
+    // Other baseball leagues have their own profiles/codes; keep them out so
+    // one event maps to exactly one sport.
+    excludeKeywords: ['kbo', 'npb', 'cpbl', 'lidom', 'lvbp', 'wbc', 'ncaa', ...ESPORTS_EXCLUDES],
+    // Baseball has no clock: 9 innings ~3h, extras can run very long.
+    typicalDurationMs: 5 * HOUR_MS,
+  },
+  kbo: {
+    id: 'kbo',
+    label: 'KBO',
+    sportCodes: ['kbo'],
+    tagIds: [102668],
+    seriesIds: [],
+    titleKeywords: ['kbo'],
+    tagLabels: ['kbo'],
+    excludeKeywords: [...ESPORTS_EXCLUDES],
+    typicalDurationMs: 5 * HOUR_MS,
+  },
+  k_league: {
+    id: 'k_league',
+    label: 'K League',
+    sportCodes: ['kor'],
+    tagIds: [102771],
+    seriesIds: [],
+    titleKeywords: ['k league', 'k-league'],
+    tagLabels: ['k league', 'k-league'],
+    excludeKeywords: [...ESPORTS_EXCLUDES],
+    // 90 min + HT + stoppage ~2h; buffer for delays.
+    typicalDurationMs: 3 * HOUR_MS,
+  },
+  liga_mx: {
+    id: 'liga_mx',
+    label: 'Liga MX',
+    sportCodes: ['mex'],
+    tagIds: [102448],
+    seriesIds: [],
+    titleKeywords: ['liga mx'],
+    tagLabels: ['liga mx', 'liga-mx'],
+    excludeKeywords: ['femenil', ...ESPORTS_EXCLUDES],
+    typicalDurationMs: 3 * HOUR_MS,
+  },
+  mls: {
+    id: 'mls',
+    label: 'MLS',
+    sportCodes: ['mls'],
+    tagIds: [100100],
+    seriesIds: [],
+    titleKeywords: ['mls'],
+    tagLabels: ['mls', 'major league soccer'],
+    excludeKeywords: ['emls', 'next pro', ...ESPORTS_EXCLUDES],
     typicalDurationMs: 3 * HOUR_MS,
   },
 };
 
-export const DEFAULT_SPORT_FOCUS: SportId[] = ['nba', 'world_cup'];
+export const DEFAULT_SPORT_FOCUS: SportId[] = [...SPORT_IDS];
+
+/** Accept common spellings for sport ids ("liga-mx", "kleague", ...). */
+const SPORT_ALIASES: Record<string, SportId> = {
+  kleague: 'k_league',
+  ligamx: 'liga_mx',
+};
 
 export function parseSportFocus(raw: string | undefined): SportId[] {
   if (!raw?.trim()) return [...DEFAULT_SPORT_FOCUS];
@@ -102,9 +178,11 @@ export function parseSportFocus(raw: string | undefined): SportId[] {
 
   const resolved: SportId[] = [];
   for (const id of ids) {
-    if (id === 'nba' || id === 'world_cup') {
-      if (!resolved.includes(id)) resolved.push(id);
-    }
+    const normalized =
+      (SPORT_IDS as readonly string[]).includes(id)
+        ? (id as SportId)
+        : SPORT_ALIASES[id.replace(/_/g, '')];
+    if (normalized && !resolved.includes(normalized)) resolved.push(normalized);
   }
 
   return resolved.length > 0 ? resolved : [...DEFAULT_SPORT_FOCUS];

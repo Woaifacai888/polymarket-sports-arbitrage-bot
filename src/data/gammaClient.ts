@@ -269,12 +269,12 @@ export function isSportsCandidate(event: GammaEvent): boolean {
   if (/ vs\.? | at | v /i.test(title)) return true;
 
   const questions = tradable.map((m) => m.question ?? '').join(' ');
-  if (/spread|total|o\/u|over|under|moneyline|both teams to score|handicap|draw| to win|world cup|nba/i.test(questions)) {
+  if (/spread|total|o\/u|over|under|moneyline|both teams to score|handicap|draw| to win|nba|wnba|mlb|kbo/i.test(questions)) {
     return true;
   }
 
   const labels = (event.tags ?? []).map((t) => `${t.label ?? ''} ${(t as { slug?: string }).slug ?? ''}`.toLowerCase());
-  if (labels.some((label) => /sport|nba|world cup|fifa/i.test(label))) {
+  if (labels.some((label) => /sport|nba|wnba|mlb|kbo|k.league|liga.mx|mls/i.test(label))) {
     return true;
   }
 

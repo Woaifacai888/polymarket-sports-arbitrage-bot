@@ -99,6 +99,48 @@ export class PortfolioTracker {
   }
 
   /**
+   * Merge matched YES+NO share pairs back into $1 of collateral each
+   * (Polymarket CTF mergePositions), without waiting for settlement or
+   * crossing the spread. Realizes PnL = matched − combined cost basis of
+   * the merged shares; leftover one-sided size stays open.
+   */
+  mergePairs(
+    marketId: string,
+    yesTokenId: string,
+    noTokenId: string,
+    maxShares?: number,
+  ): { merged: number; proceeds: number; realizedPnl: number; costBasisReleased: number } | null {
+    const yes = this.positions.get(yesTokenId);
+    const no = this.positions.get(noTokenId);
+    if (!yes || !no) return null;
+
+    let matched = Math.min(yes.size, no.size);
+    if (maxShares != null) matched = Math.min(matched, maxShares);
+    if (matched <= 0) return null;
+
+    const costReleased = add(mul(matched, yes.avgPrice), mul(matched, no.avgPrice));
+    const proceeds = matched; // each YES+NO pair merges into exactly $1
+    const pnl = sub(proceeds, costReleased);
+
+    this.balance = add(this.balance, proceeds);
+    this.realizedPnl = add(this.realizedPnl, pnl);
+    this.lastRealizedDelta = add(this.lastRealizedDelta, pnl);
+    this.realizedByMarket.set(marketId, add(this.realizedByMarket.get(marketId) ?? 0, pnl));
+
+    for (const [tokenId, pos] of [
+      [yesTokenId, yes],
+      [noTokenId, no],
+    ] as const) {
+      pos.size = sub(pos.size, matched);
+      pos.costBasis = mul(pos.size, pos.avgPrice);
+      if (pos.size <= 1e-9) this.positions.delete(tokenId);
+    }
+
+    this.recordPnlPoint(undefined);
+    return { merged: matched, proceeds, realizedPnl: pnl, costBasisReleased: costReleased };
+  }
+
+  /**
    * Resolve a market at settlement: winning outcome pays $1, losing pays $0.
    * Returns realized PnL delta from the settlement.
    */

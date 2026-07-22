@@ -11,20 +11,36 @@ import {
 } from '../src/model/sportsRegistry.js';
 
 describe('sport focus registry', () => {
-  it('defaults to nba and world_cup', () => {
-    assert.deepEqual(parseSportFocus(undefined), ['nba', 'world_cup']);
+  it('defaults to the full sport universe (no world_cup)', () => {
+    assert.deepEqual(parseSportFocus(undefined), [
+      'nba',
+      'wnba',
+      'mlb',
+      'kbo',
+      'k_league',
+      'liga_mx',
+      'mls',
+    ]);
   });
 
-  it('matches World Cup qualifier events', () => {
+  it('accepts aliases and drops unknown ids (incl. removed world_cup)', () => {
+    assert.deepEqual(parseSportFocus('nba,liga-mx,kleague,world_cup'), [
+      'nba',
+      'liga_mx',
+      'k_league',
+    ]);
+  });
+
+  it('matches Liga MX events', () => {
     const event = {
       id: '1',
-      slug: 'england-vs-ghana',
-      title: 'England vs. Ghana',
-      tags: [{ id: '1', label: 'World Cup' }],
+      slug: 'cruz-azul-vs-club-puebla',
+      title: 'CF Cruz Azul vs. Club Puebla',
+      tags: [{ id: '1', label: 'Liga MX' }],
       markets: [
         {
           id: 'm1',
-          question: 'Will England win?',
+          question: 'Will CF Cruz Azul win?',
           slug: 'm1',
           conditionId: 'c1',
           enableOrderBook: true,
@@ -32,8 +48,29 @@ describe('sport focus registry', () => {
         },
       ],
     };
-    assert.equal(eventMatchesSport(event, SPORT_PROFILES.world_cup), true);
-    assert.equal(classifyEventSport(event, ['nba', 'world_cup']), 'world_cup');
+    assert.equal(eventMatchesSport(event, SPORT_PROFILES.liga_mx), true);
+    assert.equal(classifyEventSport(event, ['nba', 'liga_mx']), 'liga_mx');
+  });
+
+  it('matches WNBA events under the wnba profile', () => {
+    const event = {
+      id: '4',
+      slug: 'wnba-lyn-sea',
+      title: 'Minnesota Lynx vs. Seattle Storm',
+      tags: [{ id: '1', label: 'WNBA' }],
+      markets: [
+        {
+          id: 'm1',
+          question: 'Will the Lynx win?',
+          slug: 'm1',
+          conditionId: 'c1',
+          enableOrderBook: true,
+          clobTokenIds: '["yes","no"]',
+        },
+      ],
+    };
+    assert.equal(eventMatchesSport(event, SPORT_PROFILES.wnba), true);
+    assert.equal(classifyEventSport(event, ['nba', 'wnba']), 'wnba');
   });
 
   it('excludes WNBA from NBA focus', () => {
@@ -78,8 +115,8 @@ describe('sport focus registry', () => {
 });
 
 describe('gamma discovery', () => {
-  it('discovers only focused sports (nba + world_cup)', async () => {
-    const config = loadConfig({ maxDiscoveryEvents: 20, sportFocus: ['nba', 'world_cup'] });
+  it('discovers only focused sports (nba + mlb)', async () => {
+    const config = loadConfig({ maxDiscoveryEvents: 20, sportFocus: ['nba', 'mlb'] });
     const client = new GammaClient(config);
     const events = await client.discoverEvents();
     assert.ok(events.length > 0, 'expected focused sports events');
