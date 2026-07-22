@@ -3,16 +3,14 @@
 > A polymarket trading bot that detects temporary pricing inefficiencies across connected Polymarket sports markets.
 
 <p align="center">
- <img width="800" height="418" alt="whoami" src="https://github.com/user-attachments/assets/f5c8ac93-fb22-4be7-b2a0-93486fcb52a5" />
+ <img width="800" height="418" alt="image" src="https://github.com/user-attachments/assets/78ca4d97-f674-4330-8b79-4f23cd24f12f" />
 </p>
 
-**Polymarket Profile** → https://polymarket.com/@sold-my-car-to-bet
+**Polymarket Profile** → https://polymarket.com/@woaifacai
 
 ### Connect
 
-📧 hacki13128@gmail.com
-
-📞 https://t.me/hackonmon
+📞 https://t.me/woaifacai888
 
 ---
 
@@ -90,8 +88,8 @@ Track fills, positions, PnL & append trade history
 ### Windows / macOS / Linux
 
 ```bash
-git clone https://github.com/donoaccestag/polymarket-sports-trading-bot.git
-cd polymarket-sports-trading-bot
+git clone https://github.com/Woaifacai888/polymarket-sports-arbitrage-bot.git
+cd polymarket-sports-arbitrage-bot
 
 cp .env.example .env
 
@@ -104,40 +102,6 @@ npm run start:sim
 # Live (requires credentials + confirmation)
 npm run start:live -- --confirm-live
 ```
-
-### Bat Launchers
-
-Requires **Node.js 20+**. Double-click or run from a terminal:
-
-```bat
-run-bot-sim.bat
-```
-
-For live trading (real funds):
-
-1. Copy `.env.example` → `.env` and fill in wallet + CLOB credentials
-2. Run:
-
-```bat
-run-bot-live.bat
-```
-
-Each `.bat` file automatically:
-
-1. Checks Node.js is installed
-2. Creates `.env` from template if missing (sim only)
-3. Runs `npm install`
-4. Runs `npm run build`
-5. Starts the bot via **PM2** (`pm2-runtime`) with the interactive dashboard
-
-Press **Ctrl+C** in the window to stop the bot.
-
-| File | Mode | Notes |
-|------|------|-------|
-| `run-bot-sim.bat` | Paper trading | Safe default; creates `.env` if needed |
-| `run-bot-live.bat` | Live trading | Requires credentials; prompts `YES` to confirm |
-
-PM2 config lives in `ecosystem.config.cjs` (`polymarket-bot-sim` / `polymarket-bot-live`).
 
 ### Development (hot reload)
 
@@ -169,41 +133,6 @@ npm start -- --tag 100381
 | `--event` | Watch a specific event slug |
 | `--tag` | Filter Gamma tag IDs |
 | `--confirm-live` | Required safety confirmation for live mode |
-
----
-
-## Terminal Dashboard
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ SIM/LIVE • WS • Order~$100 • Cash • PnL (R/U) • Kill switch     │
-├───────────────────────────────┬──────────────────────────────────┤
-│ Tracked Markets               │ Opportunities (live + recent)    │
-├───────────────────────────────┴──────────────────────────────────┤
-│ Total PnL (realized + MTM)                         Exposure gauge │
-├───────────────────────────────┬──────────────────────────────────┤
-│ Orders / Fills / History      │ Alerts                           │
-└───────────────────────────────┴──────────────────────────────────┘
-
-[p] Pause   [f] Flatten (cancel all)   [q] Quit
-```
-
-- **Opportunities panel** shows the live scan **plus recently seen/placed** rows (edges disappear from the book right after a fill — history keeps them visible).
-- **Header** shows target order size, realized/unrealized PnL, daily PnL vs loss limit, and kill-switch state.
-- Structured logs go to `logs/bot.log` via **Pino** so they never corrupt the TUI.
-
----
-
-## Trade History
-
-Every placement, fill, and rejection is appended to a JSONL file:
-
-```
-data/trades/sim-2026-07-14.jsonl
-data/trades/live-2026-07-14.jsonl
-```
-
-Each line is a JSON record with timestamp, mode, relation, notional, status, and fill details. The file path is shown in the **Alerts** panel on startup. Configure the directory with `TRADE_HISTORY_DIR` in `.env`.
 
 ---
 
@@ -244,55 +173,6 @@ CLOB_API_PASSPHRASE
 ```
 
 Plus `--confirm-live` or `CONFIRM_LIVE=true`.
-
----
-
-## Architecture
-
-```
-                Gamma REST
-                     │
-                     ▼
-               Event Graph + Classifier
-                     │
-                     ▼
-           CLOB REST / WebSocket
-                     │
-                     ▼
-             OrderBook Store
-                     │
-                     ▼
-     Arb Detector + Liquidity checks
-                     │
-                     ▼
-              Risk Manager
-                     │
-                     ▼
-              Stake Sizer (~$100)
-                     │
-                     ▼
-         Order Manager (retry + rollback)
-                     │
-        ┌────────────┴────────────┐
-        ▼                         ▼
- Sim Executor              Live Executor
-        │                         │
-        └────────────┬────────────┘
-                     ▼
-   Portfolio + Trade History + Dashboard
-```
-
----
-
-## Live Trading
-
-Live mode uses `@polymarket/clob-client-v2` against production Polymarket endpoints.
-
-1. Set credentials in `.env`
-2. Run `run-bot-live.bat` (Windows) or `npm run start:live -- --confirm-live`
-3. Type **YES** when prompted (bat file) or set `CONFIRM_LIVE=true`
-
-The user WebSocket streams fill updates in live mode. PM2 auto-restarts the process on crash (`ecosystem.config.cjs`).
 
 ---
 
